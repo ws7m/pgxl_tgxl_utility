@@ -38,7 +38,6 @@ class Settings:
     # Display
     tgxl_power_scale_w: int = 2000
     pgxl_power_scale_w: int = 2000
-    pgxl_drive_scale_w: int = 100
     pgxl_current_scale_a: int = 70
     swr_scale_max: float = 3.0
     show_peak_power: bool = True

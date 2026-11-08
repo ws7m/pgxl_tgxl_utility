@@ -8,6 +8,16 @@ packages to install. It runs on macOS, Windows and Linux with Python 3.10+.
 python3 genius_control.py
 ```
 
+### macOS app
+
+```bash
+./build_app.sh
+```
+
+This builds a self-contained `dist/Genius Control.app` with PyInstaller (it
+creates its own virtualenv in `build/` the first time). Drag it to
+/Applications and launch it like any other app.
+
 ## Tabs
 
 **Control**
@@ -17,8 +27,7 @@ python3 genius_control.py
   - **STBY/OPR** switches the tuner between standby and operate.
   - **BYP** switches bypass on and off (orange = bypassed).
   - **TUNE** starts an autotune cycle (red while tuning).
-- *Power Genius XL*: output power, drive power, SWR and drain current (Id)
-  meters, the state (STANDBY / IDLE / TRANSMIT_A …), band, temperature, Vdd,
+- *Power Genius XL*: output power, SWR and drain current (Id) meters, the state (STANDBY / IDLE / TRANSMIT_A …), band, temperature, Vdd,
   Vac, and an **OPERATE / STANDBY** button.
 
 **Settings**: IP address and port for each device, enable/disable each device,
@@ -41,10 +50,8 @@ Both devices use the 4O3A ASCII protocol: `C<seq>|cmd` → `R<seq>|<hex>|msg`.
 - Only one `status` request is kept in flight per device, because the PGXL
   drops the connection if it gets a second one before answering the first.
 - Commands end with a bare LF, because the TGXL rejects CR.
-- **Drive power:** the PGXL's documented status reply (firmware 3.9.x) has no
-  drive field, so DRV shows *N/A*. If your firmware reports one (`drv`,
-  `drive`, …), it is picked up automatically. Check the Diagnostics box for
-  the keys your amp actually sends.
+- Drive power is not shown: the PGXL's status reply on port 9008 has no drive
+  field (the radio gets it through a separate meter).
 - Authentication (needed only for WAN connections) is not supported.
 
 ## Trying it without hardware

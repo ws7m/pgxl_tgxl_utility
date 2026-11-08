@@ -21,23 +21,23 @@ STALE_AFTER_S = 3.0
 def _panel(master, title):
     outer = tk.Frame(master, bg=PANEL, highlightthickness=1, highlightbackground=BORDER)
     header = tk.Frame(outer, bg=PANEL)
-    header.pack(fill="x", padx=10, pady=(8, 4))
+    header.pack(fill="x", padx=8, pady=(4, 2))
     dot = StatusDot(header)
     dot.pack(side="left", padx=(0, 6))
     tk.Label(header, text=title, fg=TEXT, bg=PANEL, font=FONT_BIG).pack(side="left")
-    info = tk.Label(header, text="Disconnected", fg=DIM, bg=PANEL, font=FONT_SMALL)
-    info.pack(side="right")
+    info = tk.Label(header, text="Disconnected", fg=DIM, bg=PANEL, font=FONT_SMALL, width=1, anchor="e")
+    info.pack(side="right", fill="x", expand=True, padx=(8, 0))
     body = tk.Frame(outer, bg=PANEL)
-    body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+    body.pack(fill="both", expand=True, padx=8, pady=(0, 6))
     return outer, body, dot, info
 
 
-def _meter_row(body, row, label, meter, unit_width=9):
-    tk.Label(body, text=label, fg=TEXT, bg=PANEL, font=FONT_BOLD, width=4, anchor="w").grid(
-        row=row, column=0, sticky="nw", pady=(2, 0))
+def _meter_row(body, row, label, meter, unit_width=8):
+    tk.Label(body, text=label, fg=TEXT, bg=PANEL, font=("Helvetica", 10, "bold"), anchor="w").grid(
+        row=row, column=0, sticky="nw", padx=(0, 2))
     meter.grid(row=row, column=1, sticky="ew")
     value = tk.Label(body, text="--", fg=TEXT, bg=PANEL, font=FONT_VALUE, width=unit_width, anchor="e")
-    value.grid(row=row, column=2, sticky="ne", padx=(6, 0))
+    value.grid(row=row, column=2, sticky="ne", padx=(4, 0))
     return value
 
 
@@ -61,8 +61,8 @@ class TunerPanel:
         self.swr_val = _meter_row(body, 1, "SWR", self.swr)
 
         status = tk.Frame(body, bg=PANEL)
-        status.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(6, 4))
-        self.ptt = tk.Label(status, text="PTT", fg=TEXT, bg=GREY, font=FONT_BOLD, width=5, pady=2)
+        status.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(2, 2))
+        self.ptt = tk.Label(status, text="PTT", fg=TEXT, bg=GREY, font=FONT_BOLD, width=5, pady=1)
         self.ptt.pack(side="left")
         self.freq = tk.Label(status, text="", fg=DIM, bg=PANEL, font=FONT)
         self.freq.pack(side="left", padx=10)
@@ -70,7 +70,7 @@ class TunerPanel:
         self.state_lbl.pack(side="right")
 
         ants = tk.Frame(body, bg=PANEL)
-        ants.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(2, 8))
+        ants.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(2, 4))
         self.ant_btns = []
         for n in (1, 2, 3):
             ants.columnconfigure(n - 1, weight=1, uniform="ant")
@@ -87,18 +87,18 @@ class TunerPanel:
         self.l = RelayKnob(knobs, "L")
         self.c2 = RelayKnob(knobs, "C2")
         for k in (self.c1, self.l, self.c2):
-            k.pack(side="left", padx=2)
+            k.pack(side="left", padx=0)
 
         btns = tk.Frame(bottom, bg=PANEL)
         btns.pack(side="right", fill="y")
-        self.oper_btn = FlatButton(btns, "STBY", command=self.toggle_operate, fg=YELLOW, width=7)
-        self.byp_btn = FlatButton(btns, "BYP", command=self.toggle_bypass, fg=ORANGE, width=7)
-        self.tune_btn = FlatButton(btns, "TUNE", command=self.tune, fg=TEXT, width=7)
+        self.oper_btn = FlatButton(btns, "STBY", command=self.toggle_operate, fg=YELLOW, width=5)
+        self.byp_btn = FlatButton(btns, "BYP", command=self.toggle_bypass, fg=ORANGE, width=5)
+        self.tune_btn = FlatButton(btns, "TUNE", command=self.tune, fg=TEXT, width=6)
         self.oper_btn.grid(row=0, column=0, padx=2, pady=2)
         self.byp_btn.grid(row=0, column=1, padx=2, pady=2)
         self.tune_btn.grid(row=0, column=2, padx=2, pady=2)
-        self.ptt_out = tk.Label(btns, text="PTT OUT", fg=TEXT, bg=GREY, font=FONT_BOLD, pady=3)
-        self.ptt_out.grid(row=1, column=0, columnspan=3, sticky="ew", padx=2, pady=(6, 2))
+        self.ptt_out = tk.Label(btns, text="PTT OUT", fg=TEXT, bg=GREY, font=FONT_BOLD, pady=1)
+        self.ptt_out.grid(row=1, column=0, columnspan=3, sticky="ew", padx=2, pady=(4, 0))
 
         self.status: dict = {}
         self.last_status = 0.0
@@ -190,27 +190,26 @@ class AmpPanel:
         self.pwr = BarMeter(body, 0, s.pgxl_power_scale_w, power_ticks(s.pgxl_power_scale_w),
                             power_zones(s.pgxl_power_scale_w))
         self.pwr_val = _meter_row(body, 0, "OUT", self.pwr)
-        self.drv = BarMeter(body, 0, s.pgxl_drive_scale_w, power_ticks(s.pgxl_drive_scale_w),
-                            power_zones(s.pgxl_drive_scale_w))
-        self.drv_val = _meter_row(body, 1, "DRV", self.drv)
         self.swr = BarMeter(body, 1.0, s.swr_scale_max, swr_ticks(s.swr_scale_max), swr_zones())
-        self.swr_val = _meter_row(body, 2, "SWR", self.swr)
+        self.swr_val = _meter_row(body, 1, "SWR", self.swr)
         self.id = BarMeter(body, 0, s.pgxl_current_scale_a, self._id_ticks(s.pgxl_current_scale_a),
                            self._id_zones(s.pgxl_current_scale_a))
-        self.id_val = _meter_row(body, 3, "Id", self.id)
+        self.id_val = _meter_row(body, 2, "Id", self.id)
 
         bottom = tk.Frame(body, bg=PANEL)
-        bottom.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        bottom.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 0))
         self.state_lbl = tk.Label(bottom, text="OFFLINE", fg=TEXT, bg=GREY, font=FONT_BOLD,
-                                  width=12, pady=3)
+                                  width=11, pady=3)
         self.state_lbl.pack(side="left")
-        self.band_lbl = tk.Label(bottom, text="", fg=DIM, bg=PANEL, font=FONT)
-        self.band_lbl.pack(side="left", padx=10)
-        self.env_lbl = tk.Label(bottom, text="", fg=TEXT, bg=PANEL, font=FONT_SMALL, justify="right")
-        self.env_lbl.pack(side="left", expand=True)
         self.oper_btn = FlatButton(bottom, "STANDBY", command=self.toggle_operate, fg="black",
-                                   bg=YELLOW, width=10)
+                                   bg=YELLOW, width=9)
         self.oper_btn.pack(side="right")
+        info = tk.Frame(bottom, bg=PANEL)
+        info.pack(side="left", expand=True)
+        self.band_lbl = tk.Label(info, text="", fg=DIM, bg=PANEL, font=FONT_SMALL)
+        self.band_lbl.pack()
+        self.env_lbl = tk.Label(info, text="", fg=TEXT, bg=PANEL, font=FONT_SMALL)
+        self.env_lbl.pack()
 
         self.status: dict = {}
         self.last_status = 0.0
@@ -228,8 +227,6 @@ class AmpPanel:
     def apply_settings(self, s: Settings):
         self.pwr.configure_scale(0, s.pgxl_power_scale_w, power_ticks(s.pgxl_power_scale_w),
                                  power_zones(s.pgxl_power_scale_w))
-        self.drv.configure_scale(0, s.pgxl_drive_scale_w, power_ticks(s.pgxl_drive_scale_w),
-                                 power_zones(s.pgxl_drive_scale_w))
         self.swr.configure_scale(1.0, s.swr_scale_max, swr_ticks(s.swr_scale_max))
         self.id.configure_scale(0, s.pgxl_current_scale_a, self._id_ticks(s.pgxl_current_scale_a),
                                 self._id_zones(s.pgxl_current_scale_a))
@@ -247,9 +244,9 @@ class AmpPanel:
         self.oper_btn.set_enabled(connected)
         if not connected:
             self.status = {}
-            for m, start in ((self.pwr, 0), (self.drv, 0), (self.swr, 1.0), (self.id, 0)):
+            for m, start in ((self.pwr, 0), (self.swr, 1.0), (self.id, 0)):
                 m.set(start)
-            for v in (self.pwr_val, self.drv_val, self.swr_val, self.id_val):
+            for v in (self.pwr_val, self.swr_val, self.id_val):
                 v.configure(text="--")
             self.state_lbl.configure(text="OFFLINE", bg=GREY, fg=TEXT)
             self.oper_btn.style(text="STANDBY", fg="black", bg=GREY)
@@ -261,12 +258,6 @@ class AmpPanel:
         s = self.app.settings
         self.pwr.set(st["fwd_w"], st["peak_w"] if s.show_peak_power else None)
         self.pwr_val.configure(text=_fmt_w(st["fwd_w"]))
-        if st["drive_w"] is None:
-            self.drv.set(0)
-            self.drv_val.configure(text="N/A")
-        else:
-            self.drv.set(st["drive_w"])
-            self.drv_val.configure(text=_fmt_w(st["drive_w"]))
         self.swr.set(st["swr"])
         self.swr_val.configure(text=f"{st['swr']:.2f}" if st["fwd_w"] > 0.5 else "--")
         self.id.set(st["id_a"], st["peak_id_a"] if s.show_peak_power else None)
@@ -289,98 +280,109 @@ class AmpPanel:
 
         bands = [f"{p} {b}m" for p, b in (("A", st["band_a"]), ("B", st["band_b"])) if b not in ("", 0)]
         meffa = f"   MEffA {st['meffa']}" if st["meffa"] not in ("", "OFF") else ""
-        self.band_lbl.configure(text="  ".join(bands) + meffa)
+        self.band_lbl.configure(text=("  ".join(bands) + meffa).strip())
         temp = st["temp_c"]
         temp_txt = f"{float(temp):.1f} °C" if temp != "" else "-- °C"
-        self.env_lbl.configure(text=f"{temp_txt}   Vdd {st['vdd']} V   Vac {st['vac']} V")
+        self.env_lbl.configure(text=f"{temp_txt}  Vdd {st['vdd']}  Vac {st['vac']}")
 
 
 class SettingsTab:
     def __init__(self, master, app: "App"):
         self.app = app
-        self.frame = ttk.Frame(master, padding=12)
+        self.frame = ttk.Frame(master, padding=6)
         self.vars: dict[str, tk.Variable] = {}
+        self.raw = {"tgxl": "-", "pgxl": "-"}
         f = self.frame
         f.columnconfigure(0, weight=1)
-        f.columnconfigure(1, weight=1)
 
-        net = ttk.LabelFrame(f, text="Network", padding=10)
-        net.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 8))
-        self._device_rows(net, 0, "Tuner Genius XL", "tgxl")
-        self._device_rows(net, 3, "Power Genius XL", "pgxl")
-        ttk.Separator(net).grid(row=6, column=0, columnspan=4, sticky="ew", pady=8)
-        self._check(net, 7, "Connect automatically at startup", "auto_connect")
-        self._entry(net, 8, "Status poll interval (ms)", "poll_interval_ms", width=7)
-        ttk.Label(net, text="Line ending").grid(row=9, column=0, sticky="w", pady=2)
+        net = ttk.LabelFrame(f, text="Network", padding=(8, 4))
+        net.grid(row=0, column=0, sticky="ew")
+        ttk.Label(net, text="Address").grid(row=0, column=1, sticky="w")
+        ttk.Label(net, text="Port").grid(row=0, column=2, sticky="w")
+        self._device_row(net, 1, "TGXL", "tgxl")
+        self._device_row(net, 2, "PGXL", "pgxl")
+        opts = ttk.Frame(net)
+        opts.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        self._check(opts, 0, 0, "Auto-connect", "auto_connect")
+        self._entry(opts, 0, 1, "Poll ms", "poll_interval_ms", width=5)
+        ttk.Label(opts, text="EOL").grid(row=0, column=3, sticky="e", padx=(8, 2))
         le = tk.StringVar(value=app.settings.line_ending)
         self.vars["line_ending"] = le
-        ttk.Combobox(net, textvariable=le, values=["LF", "CRLF"], width=6, state="readonly").grid(
-            row=9, column=1, sticky="w")
+        ttk.Combobox(opts, textvariable=le, values=["LF", "CRLF"], width=5, state="readonly").grid(
+            row=0, column=4, sticky="w")
 
-        disp = ttk.LabelFrame(f, text="Display & preferences", padding=10)
-        disp.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=(0, 8))
-        self._entry(disp, 0, "TGXL power scale (W)", "tgxl_power_scale_w", width=7)
-        self._entry(disp, 1, "PGXL output scale (W)", "pgxl_power_scale_w", width=7)
-        self._entry(disp, 2, "PGXL drive scale (W)", "pgxl_drive_scale_w", width=7)
-        self._entry(disp, 3, "PGXL current scale (A)", "pgxl_current_scale_a", width=7)
-        self._entry(disp, 4, "SWR scale maximum", "swr_scale_max", width=7)
-        self._check(disp, 5, "Show peak-hold markers", "show_peak_power")
-        self._check(disp, 6, "Confirm before amplifier OPERATE", "confirm_operate")
-        self._check(disp, 7, "Keep window on top", "always_on_top")
+        disp = ttk.LabelFrame(f, text="Display & preferences", padding=(8, 4))
+        disp.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        self._entry(disp, 0, 0, "TGXL W", "tgxl_power_scale_w", width=5)
+        self._entry(disp, 0, 1, "PGXL W", "pgxl_power_scale_w", width=5)
+        self._entry(disp, 1, 0, "Id max A", "pgxl_current_scale_a", width=5)
+        self._entry(disp, 1, 1, "SWR max", "swr_scale_max", width=5)
+        self._check(disp, 2, 0, "Peak markers", "show_peak_power")
+        self._check(disp, 2, 1, "Confirm OPERATE", "confirm_operate")
+        self._check(disp, 3, 0, "Keep on top", "always_on_top")
 
         bar = ttk.Frame(f)
-        bar.grid(row=1, column=0, columnspan=2, sticky="ew")
+        bar.grid(row=2, column=0, sticky="ew", pady=(6, 0))
         ttk.Button(bar, text="Save & Apply", command=self.save).pack(side="left")
-        ttk.Button(bar, text="Revert", command=self.load_from_settings).pack(side="left", padx=6)
-        ttk.Button(bar, text="Defaults", command=self.defaults).pack(side="left")
-        ttk.Button(bar, text="Reconnect", command=app.connect_all).pack(side="right")
-        ttk.Button(bar, text="Disconnect", command=app.disconnect_all).pack(side="right", padx=6)
-        self.saved_lbl = ttk.Label(f, text=f"Settings file: {config_path()}", foreground="gray")
-        self.saved_lbl.grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 8))
+        ttk.Button(bar, text="Disconnect", command=app.disconnect_all).pack(side="right")
+        ttk.Button(bar, text="Reconnect", command=app.connect_all).pack(side="right", padx=4)
 
-        diag = ttk.LabelFrame(f, text="Diagnostics", padding=6)
-        diag.grid(row=3, column=0, columnspan=2, sticky="nsew")
+        diag = ttk.LabelFrame(f, text="Diagnostics", padding=4)
+        diag.grid(row=3, column=0, sticky="nsew", pady=(6, 0))
         f.rowconfigure(3, weight=1)
         diag.columnconfigure(0, weight=1)
-        diag.rowconfigure(2, weight=1)
-        self.raw_tgxl = ttk.Label(diag, text="TGXL status: -", wraplength=760, font=("Menlo", 10))
-        self.raw_tgxl.grid(row=0, column=0, columnspan=2, sticky="w")
-        self.raw_pgxl = ttk.Label(diag, text="PGXL status: -", wraplength=760, font=("Menlo", 10))
-        self.raw_pgxl.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 4))
-        self.log = tk.Text(diag, height=8, font=("Menlo", 10), state="disabled", wrap="none")
-        self.log.grid(row=2, column=0, sticky="nsew")
+        diag.rowconfigure(1, weight=1)
+        self.raw_text = tk.Text(diag, height=2, width=40, font=("Menlo", 9), state="disabled",
+                                wrap="char")
+        self.raw_text.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 4))
+        self.log = tk.Text(diag, height=3, width=40, font=("Menlo", 9), state="disabled", wrap="none")
+        self.log.grid(row=1, column=0, sticky="nsew")
         sb = ttk.Scrollbar(diag, command=self.log.yview)
-        sb.grid(row=2, column=1, sticky="ns")
+        sb.grid(row=1, column=1, sticky="ns")
         self.log.configure(yscrollcommand=sb.set)
 
         self.load_from_settings()
+        self.append_log(f"Settings file: {config_path()}")
 
     # Builders ----------------------------------------------------------------
-    def _device_rows(self, parent, row, title, prefix):
-        self._check(parent, row, f"Enable {title}", f"{prefix}_enabled")
-        self._entry(parent, row + 1, "IP address / hostname", f"{prefix}_host", width=18)
-        self._entry(parent, row + 2, "TCP port", f"{prefix}_port", width=7)
+    def _device_row(self, parent, row, name, prefix):
+        var = tk.BooleanVar()
+        self.vars[f"{prefix}_enabled"] = var
+        ttk.Checkbutton(parent, text=name, variable=var).grid(row=row, column=0, sticky="w",
+                                                              padx=(0, 6), pady=1)
+        for col, key, width in ((1, f"{prefix}_host", 16), (2, f"{prefix}_port", 5)):
+            v = tk.StringVar()
+            self.vars[key] = v
+            ttk.Entry(parent, textvariable=v, width=width).grid(row=row, column=col, sticky="w",
+                                                                padx=(0, 4), pady=1)
 
-    def _entry(self, parent, row, label, key, width=10):
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=2, padx=(16, 8))
+    def _entry(self, parent, row, col, label, key, width=6):
+        ttk.Label(parent, text=label).grid(row=row, column=col * 3, sticky="w", pady=1,
+                                           padx=(0 if col == 0 else 10, 4))
         var = tk.StringVar()
         self.vars[key] = var
-        ttk.Entry(parent, textvariable=var, width=width).grid(row=row, column=1, sticky="w", pady=2)
+        ttk.Entry(parent, textvariable=var, width=width).grid(row=row, column=col * 3 + 1,
+                                                              sticky="w", pady=1)
 
-    def _check(self, parent, row, label, key):
+    def _check(self, parent, row, col, label, key):
         var = tk.BooleanVar()
         self.vars[key] = var
-        ttk.Checkbutton(parent, text=label, variable=var).grid(row=row, column=0, columnspan=2,
-                                                               sticky="w", pady=2)
+        ttk.Checkbutton(parent, text=label, variable=var).grid(
+            row=row, column=col * 3, columnspan=2, sticky="w", pady=1,
+            padx=(0 if col == 0 else 10, 0))
+
+    def set_raw(self, device: str, text: str):
+        self.raw[device] = text
+        self.raw_text.configure(state="normal")
+        self.raw_text.delete("1.0", "end")
+        self.raw_text.insert("end", f"TGXL: {self.raw['tgxl']}\nPGXL: {self.raw['pgxl']}")
+        self.raw_text.configure(state="disabled")
 
     # Actions -----------------------------------------------------------------
     def load_from_settings(self, settings: Settings | None = None):
         s = settings or self.app.settings
         for key, var in self.vars.items():
             var.set(getattr(s, key))
-
-    def defaults(self):
-        self.load_from_settings(Settings())
 
     def collect(self) -> Settings | None:
         s = Settings()
@@ -413,7 +415,7 @@ class SettingsTab:
         old = self.app.settings
         self.app.settings = s
         path = s.save()
-        self.saved_lbl.configure(text=f"Saved to {path}")
+        self.append_log(f"Settings saved to {path}")
         self.load_from_settings()
         self.app.apply_settings(reconnect=self._network_changed(old, s))
 
@@ -443,22 +445,22 @@ class App:
 
         root.title("Genius Control - TGXL / PGXL")
         root.configure(bg=BG)
-        root.minsize(560, 640)
+        root.minsize(380, 400)
 
         nb = ttk.Notebook(root)
-        nb.pack(fill="both", expand=True, padx=6, pady=6)
+        nb.pack(fill="both", expand=True, padx=4, pady=4)
 
         control = tk.Frame(nb, bg=BG)
         self.tuner = TunerPanel(control, self)
         self.amp = AmpPanel(control, self)
-        self.tuner.frame.pack(fill="x", padx=6, pady=(6, 4))
-        self.amp.frame.pack(fill="x", padx=6, pady=(4, 6))
-        self.statusbar = tk.Label(control, text="", fg=DIM, bg=BG, font=FONT_SMALL, anchor="w")
-        self.statusbar.pack(fill="x", side="bottom", padx=8, pady=(0, 4))
-        nb.add(control, text="  Control  ")
+        self.tuner.frame.pack(fill="x", padx=4, pady=(4, 2))
+        self.amp.frame.pack(fill="x", padx=4, pady=(2, 2))
+        self.statusbar = tk.Label(control, text="", fg=DIM, bg=BG, font=FONT_SMALL, anchor="w", width=1)
+        self.statusbar.pack(fill="x", side="bottom", padx=6, pady=(0, 2))
+        nb.add(control, text="Control")
 
         self.settings_tab = SettingsTab(nb, self)
-        nb.add(self.settings_tab.frame, text="  Settings  ")
+        nb.add(self.settings_tab.frame, text="Settings")
 
         root.protocol("WM_DELETE_WINDOW", self.quit)
         self.apply_settings(reconnect=self.settings.auto_connect)
@@ -518,8 +520,7 @@ class App:
         elif ev.kind == "status":
             if self._client(ev.device).connected:
                 panel.update(ev.data)
-            label = self.settings_tab.raw_tgxl if ev.device == "tgxl" else self.settings_tab.raw_pgxl
-            label.configure(text=f"{name} status: {ev.text}")
+            self.settings_tab.set_raw(ev.device, ev.text)
         elif ev.kind == "error":
             self.statusbar.configure(text=f"{name}: {ev.text}", fg=RED)
             self.settings_tab.append_log(f"{name} ERROR {ev.text}")

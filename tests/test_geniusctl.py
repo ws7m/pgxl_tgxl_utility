@@ -84,7 +84,6 @@ class SimulatorRoundTrip(unittest.TestCase):
             self._wait(q, lambda e: e.kind == "connected")
             ev = self._wait(q, lambda e: e.kind == "status")
             self.assertEqual(ev.data["state"], "STANDBY")
-            self.assertIsNone(ev.data["drive_w"])
             c.set_operate(True)
             self._wait(q, lambda e: e.kind == "status" and e.data["state"] == "IDLE")
             c.set_operate(False)

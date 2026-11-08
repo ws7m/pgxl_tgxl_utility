@@ -112,19 +112,11 @@ class PowerGeniusClient(GeniusClient):
     status_via_reply = True
     default_port = 9008
 
-    # Keys some firmware versions may use for drive power (dBm). The documented
-    # 3.9.x status reply has none, in which case drive reads as unavailable.
-    DRIVE_KEYS = ("drv", "drive", "fwdin", "pin", "drvpwr")
 
     def set_operate(self, on: bool):
         return self.send(f"operate={1 if on else 0}")
 
     def decode_status(self, raw: dict) -> dict:
-        drive_w = None
-        for key in self.DRIVE_KEYS:
-            if key in raw:
-                drive_w = dbm_to_watts(raw[key], floor_dbm=0.0)
-                break
         state = str(raw.get("state", "")).upper()
         return {
             "raw": raw,
@@ -135,7 +127,6 @@ class PowerGeniusClient(GeniusClient):
             # fwd sits at 30 dBm (meter floor, 1 W) with no RF: treat that as 0 W.
             "fwd_w": dbm_to_watts(raw.get("fwd"), floor_dbm=30.0),
             "peak_w": dbm_to_watts(raw.get("peakfwd"), floor_dbm=30.0),
-            "drive_w": drive_w,
             "swr": return_loss_to_swr(raw.get("swr", NO_RF_RETURN_LOSS)),
             "id_a": _float(raw.get("id")),
             "peak_id_a": _float(raw.get("peakid")),

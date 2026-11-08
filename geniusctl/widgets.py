@@ -31,8 +31,8 @@ ORANGE = "#d27a2a"
 FONT = ("Helvetica", 12)
 FONT_SMALL = ("Helvetica", 9)
 FONT_BOLD = ("Helvetica", 12, "bold")
-FONT_BIG = ("Helvetica", 16, "bold")
-FONT_VALUE = ("Menlo", 15, "bold")
+FONT_BIG = ("Helvetica", 13, "bold")
+FONT_VALUE = ("Menlo", 13, "bold")
 
 
 class FlatButton(tk.Label):
@@ -41,7 +41,7 @@ class FlatButton(tk.Label):
     def __init__(self, master, text, command=None, width=8, fg=TEXT, bg="#262626",
                  font=FONT_BOLD, **kw):
         super().__init__(master, text=text, width=width, fg=fg, bg=bg, font=font,
-                         relief="flat", bd=0, padx=6, pady=6, cursor="hand2",
+                         relief="flat", bd=0, padx=4, pady=3, cursor="hand2",
                          highlightthickness=1, highlightbackground=BORDER, **kw)
         self.command = command
         self._enabled = True
@@ -80,13 +80,13 @@ class BarMeter(tk.Canvas):
     ticks: list of (value, label).
     """
 
-    def __init__(self, master, vmin, vmax, ticks, zones, width=360, height=46, log=False):
+    def __init__(self, master, vmin, vmax, ticks, zones, width=250, height=31, log=False):
         super().__init__(master, width=width, height=height, bg=PANEL, highlightthickness=0)
         self.vmin, self.vmax = vmin, vmax
         self.ticks, self.zones = ticks, zones
         self.w, self.h = width, height
-        self.pad = 12
-        self.bar_h = 18
+        self.pad = 10
+        self.bar_h = 13
         self.value = vmin
         self.peak = None
         self.bind("<Configure>", self._resize)
@@ -113,7 +113,7 @@ class BarMeter(tk.Canvas):
 
     def _draw(self):
         self.delete("all")
-        y0, y1 = 4, 4 + self.bar_h
+        y0, y1 = 2, 2 + self.bar_h
         lo = self.vmin
         for hi, bright, dim in self.zones:
             x0, x1 = self._x(lo), self._x(min(hi, self.vmax))
@@ -130,7 +130,7 @@ class BarMeter(tk.Canvas):
             self.create_line(px, y0 - 2, px, y1 + 2, fill=TEXT, width=2)
         for value, label in self.ticks:
             x = self._x(value)
-            self.create_line(x, y1, x, y1 + 3, fill=DIM)
+            self.create_line(x, y1, x, y1 + 2, fill=DIM)
             anchor = "n"
             if value <= self.vmin:
                 anchor = "nw"
@@ -138,14 +138,14 @@ class BarMeter(tk.Canvas):
             elif value >= self.vmax:
                 anchor = "ne"
                 x += 2
-            self.create_text(x, y1 + 4, text=label, fill=TEXT, font=FONT_SMALL, anchor=anchor)
+            self.create_text(x, y1 + 2, text=label, fill=TEXT, font=FONT_SMALL, anchor=anchor)
 
 
 class RelayKnob(tk.Canvas):
     """Read-only dial showing a relay bank position (0-255), like the TGXL C1/L/C2."""
 
-    def __init__(self, master, label, size=72, vmax=255):
-        super().__init__(master, width=size + 8, height=size + 22, bg=PANEL, highlightthickness=0)
+    def __init__(self, master, label, size=46, vmax=255):
+        super().__init__(master, width=size + 8, height=size + 18, bg=PANEL, highlightthickness=0)
         self.label, self.size, self.vmax = label, size, vmax
         self.value = 0
         self._draw()
@@ -163,11 +163,11 @@ class RelayKnob(tk.Canvas):
         # 270-degree sweep from lower-left (min) to lower-right (max)
         frac = min(1.0, max(0.0, self.value / self.vmax))
         angle = math.radians(225 - 270 * frac)
-        x = cx + (r - 8) * math.cos(angle)
-        y = cy - (r - 8) * math.sin(angle)
+        x = cx + (r - 6) * math.cos(angle)
+        y = cy - (r - 6) * math.sin(angle)
         self.create_line(cx - (x - cx) * 0.25, cy - (y - cy) * 0.25, x, y,
-                         fill="white", width=3, capstyle="round")
-        self.create_text(cx, o + s + 10, text=f"{self.label}  {self.value}",
+                         fill="white", width=2, capstyle="round")
+        self.create_text(cx, o + s + 8, text=f"{self.label}  {self.value}",
                          fill=TEXT, font=FONT_SMALL)
 
 
