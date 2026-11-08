@@ -31,6 +31,9 @@ class Settings:
     pgxl_enabled: bool = True
     pgxl_host: str = "192.168.1.171"
     pgxl_port: int = 9008
+    flex_enabled: bool = True
+    flex_host: str = ""
+    flex_port: int = 4992
     auto_connect: bool = True
     poll_interval_ms: int = 500
     line_ending: str = "LF"  # "LF" or "CRLF" (the TGXL rejects CR)

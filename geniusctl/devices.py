@@ -1,4 +1,4 @@
-"""Tuner Genius XL and Power Genius XL clients built on the shared protocol."""
+"""Tuner Genius XL, Power Genius XL and FlexRadio clients built on the shared protocol."""
 
 from __future__ import annotations
 
@@ -139,4 +139,78 @@ class PowerGeniusClient(GeniusClient):
             "band_a": raw.get("bandA", ""),
             "band_b": raw.get("bandB", ""),
             "meffa": raw.get("meffa", ""),
+        }
+
+
+def parse_flex_info(message: str) -> dict:
+    """Parse a FlexRadio 'info' reply: key="value",key=value,... (comma separated)."""
+    out = {}
+    for part in message.split(","):
+        key, sep, value = part.partition("=")
+        if sep:
+            out[key.strip()] = value.strip().strip('"')
+    return out
+
+
+class FlexRadioClient(GeniusClient):
+    """FlexRadio SmartSDR API, TCP port 4992.
+
+    On connect the radio sends 'V<version>' then 'H<handle>'. There is no status
+    poll: after 'sub tx all' the radio pushes 'S<handle>|transmit k=v ...' lines
+    (often only the keys that changed), which are merged into one state dict.
+    """
+
+    device = "flex"
+    default_port = 4992
+
+    def __init__(self, events):
+        super().__init__(events)
+        self.handle = ""
+        self.tx: dict = {}
+
+    def start(self, host, port, poll_interval=0.5, terminator="\n"):
+        self.tx = {}
+        super().start(host, port, poll_interval, "\n")
+
+    def on_connected(self):
+        def got_info(code, message):
+            if code == 0:
+                info = parse_flex_info(message)
+                self._emit("info", info, text=f"{info.get('model', '')} {info.get('name', '')}")
+
+        self.send("info", got_info)
+        self.send("sub tx all")
+
+    def _poll_status(self, now: float):
+        pass  # the radio pushes transmit status after 'sub tx all'
+
+    def _handle_line(self, line: str):
+        if line.startswith("H"):
+            self.handle = line[1:]
+            return
+        kind, _, rest = line.partition("|")
+        if kind.startswith("S"):
+            if rest.startswith("transmit "):
+                self.tx.update(parse_key_values(rest[len("transmit "):]))
+                self._emit("status", self.decode_status(dict(self.tx)), text=rest.strip())
+            return  # other radio status (slices, eq, ...) is not needed here
+        if kind.startswith("M"):
+            self._emit("log", text=f"< {line}")
+            return
+        super()._handle_line(line)
+
+    def set_rf_power(self, value: int):
+        value = max(0, min(100, int(value)))
+        return self.send(f"transmit set rfpower={value}")
+
+    def decode_status(self, raw: dict) -> dict:
+        return {
+            "raw": raw,
+            "rfpower": _int(raw.get("rfpower"), -1),
+            "tunepower": _int(raw.get("tunepower"), -1),
+            "max_power": _int(raw.get("max_power_level"), 100) or 100,
+            "changes_allowed": _int(raw.get("tx_rf_power_changes_allowed"), 1) == 1,
+            "tune": _int(raw.get("tune")) == 1,
+            "freq_mhz": _float(raw.get("freq")),
+            "mode": raw.get("tx_slice_mode", ""),
         }

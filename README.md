@@ -30,7 +30,11 @@ creates its own virtualenv in `build/` the first time). Drag it to
 - *Power Genius XL*: output power, SWR and drain current (Id) meters, the state (STANDBY / IDLE / TRANSMIT_A …), band, temperature, Vdd,
   Vac, and an **OPERATE / STANDBY** button.
 
-**Settings**: IP address and port for each device, enable/disable each device,
+- *FlexRadio*: an RF power slider (0–100; drag it, click it, scroll, use the
+  arrow keys, or press −/+). The slider follows changes made on the radio or
+  in SmartSDR. Below it are the TX frequency, mode and tune power.
+
+**Settings**: IP address and port for each device (TGXL, PGXL, Flex), enable/disable each device,
 auto-connect, poll interval, line ending, meter scales, peak markers,
 confirm-before-operate, and always-on-top. Save & Apply writes the settings to
 `~/Library/Application Support/GeniusControl/settings.json` on macOS. The
@@ -44,6 +48,7 @@ Both devices use the 4O3A ASCII protocol: `C<seq>|cmd` → `R<seq>|<hex>|msg`.
 |---|---|---|---|
 | TGXL | 9010 | `status` → `S<n>\|status k=v …` | `autotune`, `activate ant=N`, `bypass set=0/1`, `operate set=0/1`, `info` |
 | PGXL | 9008 | `status` → `R<seq>\|0\|k=v …` | `operate=0/1` |
+| FlexRadio | 4992 | `sub tx all` → pushed `S<handle>\|transmit k=v …` | `transmit set rfpower=N`, `info` |
 
 - Power is reported in **dBm** and converted to watts. SWR is reported as
   **return loss in dB** and converted to VSWR.
@@ -60,8 +65,9 @@ Both devices use the 4O3A ASCII protocol: `C<seq>|cmd` → `R<seq>|<hex>|msg`.
 python3 tools/simulator.py
 ```
 
-This starts fake TGXL (9010) and PGXL (9008) devices on 127.0.0.1. The fake
-radio keys up periodically. Set both addresses to `127.0.0.1` in Settings.
+This starts fake TGXL (9010), PGXL (9008) and FlexRadio (4992) devices on
+127.0.0.1. The fake
+radio keys up periodically. Set all three addresses to `127.0.0.1` in Settings.
 
 ## Tests
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local simulator for a Tuner Genius XL and a Power Genius XL.
+"""Local simulator for a Tuner Genius XL, a Power Genius XL and a FlexRadio.
 
 Lets you try the GUI without hardware. Point the app at 127.0.0.1 with ports
 9010 (TGXL) and 9008 (PGXL), or pass --tgxl-port / --pgxl-port.
@@ -43,6 +43,9 @@ class Shared:
         self.swr_by_ant = {1: 1.15, 2: 1.6, 3: 2.4}
         # amp
         self.pg_operate = 0
+        # radio
+        self.rfpower = 50
+        self.flex_clients = []
 
     def tx(self) -> bool:
         tuning = time.monotonic() < self.tg_tune_until
@@ -51,7 +54,7 @@ class Shared:
     def drive_w(self) -> float:
         if time.monotonic() < self.tg_tune_until:
             return 10.0
-        return 45.0 + random.uniform(-3, 3) if self.tx() else 0.0
+        return self.rfpower * 0.9 + random.uniform(-1, 1) if self.tx() and self.rfpower else 0.0
 
     def out_w(self) -> float:
         d = self.drive_w()
@@ -71,8 +74,11 @@ class Handler(socketserver.StreamRequestHandler):
 
     def handle(self):
         self.status_pending = False
-        version = "1.2.44" if self.kind == "tgxl" else "3.9.9"
+        version = {"tgxl": "1.2.44", "pgxl": "3.9.9", "flex": "1.4.0.0"}[self.kind]
         self.wfile.write(f"V{version}\r\n".encode())
+        if self.kind == "flex":
+            self.handle_id = f"{random.randint(0, 0xFFFFFFFF):08X}"
+            self.wfile.write(f"H{self.handle_id}\n".encode())
         print(f"[{self.kind}] client {self.client_address[0]} connected")
         for raw in self.rfile:
             line = raw.decode(errors="replace").rstrip("\n")
@@ -100,8 +106,34 @@ class Handler(socketserver.StreamRequestHandler):
         with sh.lock:
             if self.kind == "tgxl":
                 self.tgxl(seq, cmd, sh)
+            elif self.kind == "flex":
+                self.flex(seq, cmd, sh)
             else:
                 self.pgxl(seq, cmd, sh)
+
+    # ---------------------------------------------------------------- FlexRadio
+    def flex_tx_status(self, sh: Shared):
+        return (f"S{self.handle_id}|transmit freq=14.205000 rfpower={sh.rfpower} tunepower=15 "
+                f"tx_slice_mode=USB max_power_level=100 tx_rf_power_changes_allowed=1 tune=0")
+
+    def flex(self, seq, cmd, sh: Shared):
+        if cmd == "info":
+            self.reply(seq, 0, 'model="FLEX-6600",chassis_serial="SIM",name="SIM-6600",'
+                               'callsign="N0CALL",software_ver=4.3.16.0,ip=127.0.0.1')
+        elif cmd == "sub tx all":
+            self.reply(seq)
+            self.reply_raw(self.flex_tx_status(sh))
+            sh.flex_clients.append(self)
+        elif cmd.startswith("transmit set rfpower="):
+            sh.rfpower = max(0, min(100, int(cmd.split("=")[1])))
+            self.reply(seq)
+            for client in list(sh.flex_clients):  # the radio pushes the change to subscribers
+                try:
+                    client.reply_raw(client.flex_tx_status(sh))
+                except OSError:
+                    sh.flex_clients.remove(client)
+        else:
+            self.reply(seq, 0x50000015, "unknown command")
 
     # ---------------------------------------------------------------- TGXL
     def tgxl(self, seq, cmd, sh: Shared):
@@ -187,12 +219,14 @@ def main():
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--tgxl-port", type=int, default=9010)
     ap.add_argument("--pgxl-port", type=int, default=9008)
+    ap.add_argument("--flex-port", type=int, default=4992)
     ap.add_argument("--tx-every", type=float, default=10.0, help="seconds between simulated key-ups")
     ap.add_argument("--tx-len", type=float, default=4.0, help="length of each key-up in seconds")
     args = ap.parse_args()
     shared = Shared(args.tx_every, args.tx_len)
     servers = [serve("tgxl", args.host, args.tgxl_port, shared),
-               serve("pgxl", args.host, args.pgxl_port, shared)]
+               serve("pgxl", args.host, args.pgxl_port, shared),
+               serve("flex", args.host, args.flex_port, shared)]
     try:
         while True:
             time.sleep(1)

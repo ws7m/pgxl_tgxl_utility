@@ -9,12 +9,12 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from . import __version__
-from .devices import PowerGeniusClient, TunerGeniusClient
+from .devices import FlexRadioClient, PowerGeniusClient, TunerGeniusClient
 from .protocol import Event
 from .settings import Settings, config_path
 from .widgets import (AMBER, BG, BORDER, DIM, FONT, FONT_BIG, FONT_BOLD, FONT_SMALL, FONT_VALUE,
                       GREEN, GREY, ORANGE, PANEL, RED, TEXT, YELLOW, BarMeter, FlatButton,
-                      RelayKnob, StatusDot, power_ticks, power_zones, swr_ticks, swr_zones)
+                      RelayKnob, Slider, StatusDot, power_ticks, power_zones, swr_ticks, swr_zones)
 
 STALE_AFTER_S = 3.0
 
@@ -287,12 +287,102 @@ class AmpPanel:
         self.env_lbl.configure(text=f"{temp_txt}  Vdd {st['vdd']}  Vac {st['vac']}")
 
 
+class FlexPanel:
+    """FlexRadio: RF power slider (sent as 'transmit set rfpower=N')."""
+
+    SEND_DELAY_MS = 150  # while dragging, send at most this often
+    HOLD_S = 1.5  # after a local change, ignore older radio status for this long
+
+    def __init__(self, master, app: "App"):
+        self.app = app
+        self.frame, body, self.dot, self.info = _panel(master, "FlexRadio")
+        body.columnconfigure(2, weight=1)
+
+        tk.Label(body, text="RF PWR", fg=TEXT, bg=PANEL, font=("Helvetica", 10, "bold"),
+                 anchor="w").grid(row=0, column=0, sticky="nw", padx=(0, 4), pady=(2, 0))
+        self.minus = FlatButton(body, "\u2212", command=lambda: self.slider.step(-1), width=2,
+                                font=FONT_BOLD)
+        self.minus.grid(row=0, column=1, sticky="n")
+        self.slider = Slider(body, 0, 100, width=180, on_change=self._changed, on_commit=self._commit)
+        self.slider.grid(row=0, column=2, sticky="ew", padx=2)
+        self.plus = FlatButton(body, "+", command=lambda: self.slider.step(1), width=2,
+                               font=FONT_BOLD)
+        self.plus.grid(row=0, column=3, sticky="n")
+        self.value = tk.Label(body, text="--", fg=TEXT, bg=PANEL, font=FONT_VALUE, width=5,
+                              anchor="e")
+        self.value.grid(row=0, column=4, sticky="ne")
+        self.detail = tk.Label(body, text="", fg=DIM, bg=PANEL, font=FONT_SMALL, anchor="w")
+        self.detail.grid(row=1, column=0, columnspan=5, sticky="w")
+
+        self.status: dict = {}
+        self.last_status = 0.0
+        self._sent_value = None
+        self._local_until = 0.0
+        self._after = None
+        self.set_connected(False)
+
+    def _changed(self, value):
+        self.value.configure(text=f"{value} W")
+        self._local_until = time.monotonic() + self.HOLD_S
+        if self._after is None:
+            self._after = self.frame.after(self.SEND_DELAY_MS, self._send_pending)
+
+    def _commit(self, value):
+        if self._after is not None:
+            self.frame.after_cancel(self._after)
+            self._after = None
+        self._local_until = time.monotonic() + self.HOLD_S
+        self._send(value)
+
+    def _send_pending(self):
+        self._after = None
+        self._send(self.slider.value)
+
+    def _send(self, value):
+        if value != self._sent_value:
+            self._sent_value = value
+            self.app.flex.set_rf_power(value)
+
+    def set_connected(self, connected: bool, info: str = ""):
+        self.dot.set(GREEN if connected else RED)
+        self.info.configure(text=info or ("Connected" if connected else "Disconnected"))
+        for w in (self.slider, self.minus, self.plus):
+            w.set_enabled(connected)
+        if not connected:
+            self.status = {}
+            self._sent_value = None
+            self.value.configure(text="--")
+            self.detail.configure(text="")
+
+    def update(self, st: dict):
+        self.status, self.last_status = st, time.monotonic()
+        allowed = st["changes_allowed"]
+        for w in (self.slider, self.minus, self.plus):
+            w.set_enabled(allowed)
+        if st["rfpower"] >= 0:
+            self.slider.vmax = max(1, st["max_power"])
+            if time.monotonic() >= self._local_until and not self.slider.dragging:
+                self.slider.set(st["rfpower"])
+                self._sent_value = st["rfpower"]
+                self.value.configure(text=f"{st['rfpower']} W")
+        parts = []
+        if st["freq_mhz"]:
+            parts.append(f"TX {st['freq_mhz']:.3f} MHz")
+        if st["mode"]:
+            parts.append(str(st["mode"]))
+        if st["tunepower"] >= 0:
+            parts.append(f"Tune pwr {st['tunepower']}")
+        if not allowed:
+            parts.append("RF power changes locked by radio")
+        self.detail.configure(text="   ".join(parts))
+
+
 class SettingsTab:
     def __init__(self, master, app: "App"):
         self.app = app
         self.frame = ttk.Frame(master, padding=6)
         self.vars: dict[str, tk.Variable] = {}
-        self.raw = {"tgxl": "-", "pgxl": "-"}
+        self.raw = {"tgxl": "-", "pgxl": "-", "flex": "-"}
         f = self.frame
         f.columnconfigure(0, weight=1)
 
@@ -302,8 +392,9 @@ class SettingsTab:
         ttk.Label(net, text="Port").grid(row=0, column=2, sticky="w")
         self._device_row(net, 1, "TGXL", "tgxl")
         self._device_row(net, 2, "PGXL", "pgxl")
+        self._device_row(net, 3, "Flex", "flex")
         opts = ttk.Frame(net)
-        opts.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        opts.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(4, 0))
         self._check(opts, 0, 0, "Auto-connect", "auto_connect")
         self._entry(opts, 0, 1, "Poll ms", "poll_interval_ms", width=5)
         ttk.Label(opts, text="EOL").grid(row=0, column=3, sticky="e", padx=(8, 2))
@@ -423,6 +514,7 @@ class SettingsTab:
     @staticmethod
     def _network_changed(a: Settings, b: Settings) -> bool:
         keys = ("tgxl_enabled", "tgxl_host", "tgxl_port", "pgxl_enabled", "pgxl_host", "pgxl_port",
+                "flex_enabled", "flex_host", "flex_port",
                 "poll_interval_ms", "line_ending")
         return any(getattr(a, k) != getattr(b, k) for k in keys)
 
@@ -443,8 +535,9 @@ class App:
         self.events: "queue.Queue[Event]" = queue.Queue()
         self.tgxl = TunerGeniusClient(self.events)
         self.pgxl = PowerGeniusClient(self.events)
+        self.flex = FlexRadioClient(self.events)
 
-        root.title("Genius Control - TGXL / PGXL")
+        root.title("Genius Control")
         root.configure(bg=BG)
         root.minsize(380, 400)
 
@@ -456,6 +549,10 @@ class App:
         self.amp = AmpPanel(control, self)
         self.tuner.frame.pack(fill="x", padx=4, pady=(4, 2))
         self.amp.frame.pack(fill="x", padx=4, pady=(2, 2))
+        self.radio = FlexPanel(control, self)
+        self.radio.frame.pack(fill="x", padx=4, pady=(2, 2))
+        self.clients = {"tgxl": self.tgxl, "pgxl": self.pgxl, "flex": self.flex}
+        self.panels = {"tgxl": self.tuner, "pgxl": self.amp, "flex": self.radio}
         self.statusbar = tk.Label(control, text="", fg=DIM, bg=BG, font=FONT_SMALL, anchor="w", width=1)
         self.statusbar.pack(fill="x", side="bottom", padx=6, pady=(0, 2))
         nb.add(control, text="Control")
@@ -488,16 +585,19 @@ class App:
         if s.pgxl_enabled and s.pgxl_host:
             self.pgxl.start(s.pgxl_host, s.pgxl_port, poll, s.terminator)
             self.amp.info.configure(text=f"Connecting to {s.pgxl_host}…")
+        if s.flex_enabled and s.flex_host:
+            self.flex.start(s.flex_host, s.flex_port, poll)
+            self.radio.info.configure(text=f"Connecting to {s.flex_host}…")
 
     def disconnect_all(self):
-        for client in (self.tgxl, self.pgxl):
+        for client in self.clients.values():
             client.stop()
             client.connected = False
-        self.tuner.set_connected(False)
-        self.amp.set_connected(False)
+        for panel in self.panels.values():
+            panel.set_connected(False)
 
     def _panel_for(self, device):
-        return self.tuner if device == "tgxl" else self.amp
+        return self.panels[device]
 
     def _drain(self):
         try:
@@ -521,17 +621,23 @@ class App:
         elif ev.kind == "status":
             if self._client(ev.device).connected:
                 panel.update(ev.data)
-            self.settings_tab.set_raw(ev.device, ev.text)
+            if ev.device != "flex":  # the radio's transmit status is long; keep it out
+                self.settings_tab.set_raw(ev.device, ev.text)
         elif ev.kind == "error":
             self.statusbar.configure(text=f"{name}: {ev.text}", fg=RED)
             self.settings_tab.append_log(f"{name} ERROR {ev.text}")
+        elif ev.kind == "info" and ev.device == "flex":
+            label = " ".join(x for x in (ev.data.get("model"), ev.data.get("name")) if x)
+            ver = ev.data.get("software_ver", "")
+            panel.info.configure(text=f"{label}   {self.flex.host}" + (f"   v{ver}" if ver else ""))
+            self.settings_tab.append_log(f"{name} {ev.text}")
         elif ev.kind in ("log", "reply", "info"):
             self.settings_tab.append_log(f"{name} {ev.text}")
             if ev.kind == "reply" and ev.data.get("code") == 0:
                 self.statusbar.configure(text=f"{name}: '{ev.data['command']}' OK", fg=DIM)
 
     def _client(self, device):
-        return self.tgxl if device == "tgxl" else self.pgxl
+        return self.clients[device]
 
     def _watchdog(self):
         now = time.monotonic()
@@ -543,7 +649,7 @@ class App:
         self.root.after(1000, self._watchdog)
 
     def quit(self):
-        for client in (self.tgxl, self.pgxl):
+        for client in self.clients.values():
             client.stop()
         self.root.destroy()
 

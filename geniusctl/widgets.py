@@ -201,3 +201,108 @@ def swr_ticks(max_swr: float):
 
 def swr_zones():
     return [(1.5, GREEN, GREEN_DIM), (2.0, AMBER, AMBER_DIM), (99, RED, RED_DIM)]
+
+
+class Slider(tk.Canvas):
+    """Horizontal slider drawn to match the bar meters.
+
+    Click or drag to set; scroll wheel or arrow keys step by 1 (Shift: 5).
+    on_change(value) fires as the user moves it; on_commit(value) fires when a
+    drag ends or after a key/wheel step, which is when the value should be sent.
+    """
+
+    def __init__(self, master, vmin=0, vmax=100, width=230, height=30, color=BLUE,
+                 on_change=None, on_commit=None):
+        super().__init__(master, width=width, height=height, bg=PANEL, highlightthickness=0,
+                         takefocus=1, cursor="hand2")
+        self.vmin, self.vmax = vmin, vmax
+        self.w, self.h = width, height
+        self.color = color
+        self.on_change, self.on_commit = on_change, on_commit
+        self.value = vmin
+        self.enabled = True
+        self.dragging = False
+        self.pad = 10
+        self.bind("<Configure>", self._resize)
+        self.bind("<ButtonPress-1>", self._press)
+        self.bind("<B1-Motion>", self._drag)
+        self.bind("<ButtonRelease-1>", self._release)
+        self.bind("<MouseWheel>", self._wheel)
+        for key, step in (("<Left>", -1), ("<Right>", 1), ("<Down>", -1), ("<Up>", 1),
+                          ("<Shift-Left>", -5), ("<Shift-Right>", 5)):
+            self.bind(key, lambda e, s=step: self.step(s))
+        self._draw()
+
+    def _resize(self, event):
+        self.w = event.width
+        self._draw()
+
+    def _x(self, v):
+        frac = (v - self.vmin) / ((self.vmax - self.vmin) or 1)
+        return self.pad + max(0.0, min(1.0, frac)) * (self.w - 2 * self.pad)
+
+    def _value_at(self, x):
+        frac = (x - self.pad) / max(1, self.w - 2 * self.pad)
+        return round(self.vmin + max(0.0, min(1.0, frac)) * (self.vmax - self.vmin))
+
+    def set(self, value):
+        """Set from device status (ignored while the user is dragging)."""
+        if not self.dragging:
+            self.value = max(self.vmin, min(self.vmax, int(value)))
+            self._draw()
+
+    def set_enabled(self, enabled: bool):
+        self.enabled = enabled
+        self.configure(cursor="hand2" if enabled else "arrow")
+        self._draw()
+
+    def _update(self, value):
+        value = max(self.vmin, min(self.vmax, int(value)))
+        if value != self.value:
+            self.value = value
+            self._draw()
+            if self.on_change:
+                self.on_change(value)
+        return value
+
+    def _press(self, event):
+        if not self.enabled:
+            return
+        self.focus_set()
+        self.dragging = True
+        self._update(self._value_at(event.x))
+
+    def _drag(self, event):
+        if self.enabled and self.dragging:
+            self._update(self._value_at(event.x))
+
+    def _release(self, _event):
+        if self.enabled and self.dragging:
+            self.dragging = False
+            if self.on_commit:
+                self.on_commit(self.value)
+
+    def _wheel(self, event):
+        self.step(1 if event.delta > 0 else -1)
+
+    def step(self, amount):
+        if self.enabled:
+            self._update(self.value + amount)
+            if self.on_commit:
+                self.on_commit(self.value)
+
+    def _draw(self):
+        self.delete("all")
+        cy = self.h / 2 - 3
+        x0, x1 = self._x(self.vmin), self._x(self.vmax)
+        fill = self.color if self.enabled else GREY
+        self.create_rectangle(x0, cy - 4, x1, cy + 4, fill=BLUE_DIM, width=0)
+        xv = self._x(self.value)
+        self.create_rectangle(x0, cy - 4, xv, cy + 4, fill=fill, width=0)
+        for i in range(5):
+            v = self.vmin + (self.vmax - self.vmin) * i / 4
+            x = self._x(v)
+            self.create_text(x, cy + 7, text=f"{v:.0f}", fill=DIM, font=FONT_SMALL,
+                             anchor="n" if 0 < i < 4 else ("nw" if i == 0 else "ne"))
+        self.create_oval(xv - 7, cy - 7, xv + 7, cy + 7, fill=TEXT if self.enabled else DIM,
+                         outline=fill, width=2)

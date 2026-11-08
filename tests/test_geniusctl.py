@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
-from geniusctl.devices import (PowerGeniusClient, TunerGeniusClient, dbm_to_watts,  # noqa: E402
+from geniusctl.devices import (FlexRadioClient, PowerGeniusClient, TunerGeniusClient, dbm_to_watts,  # noqa: E402
                                return_loss_to_swr)
 from geniusctl.protocol import parse_key_values  # noqa: E402
 import simulator  # noqa: E402
@@ -56,7 +56,8 @@ class SimulatorRoundTrip(unittest.TestCase):
     def setUpClass(cls):
         cls.shared = simulator.Shared(tx_every=1000, tx_len=0)
         cls.servers = [simulator.serve("tgxl", "127.0.0.1", 0, cls.shared),
-                       simulator.serve("pgxl", "127.0.0.1", 0, cls.shared)]
+                       simulator.serve("pgxl", "127.0.0.1", 0, cls.shared),
+                       simulator.serve("flex", "127.0.0.1", 0, cls.shared)]
 
     @classmethod
     def tearDownClass(cls):
@@ -108,6 +109,49 @@ class SimulatorRoundTrip(unittest.TestCase):
             self._wait(q, lambda e: e.kind == "status" and e.data["state"] == "STANDBY")
         finally:
             c.stop()
+
+    def test_flex_rf_power(self):
+        q = queue.Queue()
+        c = FlexRadioClient(q)
+        c.start("127.0.0.1", self.servers[2].server_address[1])
+        try:
+            self._wait(q, lambda e: e.kind == "connected")
+            ev = self._wait(q, lambda e: e.kind == "info")
+            self.assertEqual(ev.data["model"], "FLEX-6600")
+            ev = self._wait(q, lambda e: e.kind == "status")
+            self.assertEqual(ev.data["rfpower"], self.shared.rfpower)
+            c.set_rf_power(37)
+            self._wait(q, lambda e: e.kind == "status" and e.data["rfpower"] == 37)
+            self.assertTrue(c.handle)
+        finally:
+            c.stop()
+
+
+class FlexDecodeTests(unittest.TestCase):
+    # Captured from a real FLEX-6600 (SmartSDR 4.3.16): status arrives in parts.
+    LINES = ["S6016AA69|transmit tx_rf_power_changes_allowed=1 tune=0 tune_mode=single_tone "
+             "mon_available=1 max_power_level=100 ptt_mic_override=0",
+             "S6016AA69|transmit freq=14.050010 rfpower=23 tunepower=15 tx_slice_mode=CW"]
+
+    def test_merges_partial_transmit_status(self):
+        q = queue.Queue()
+        c = FlexRadioClient(q)
+        c._handle_line("H6016AA69")
+        for line in self.LINES:
+            c._handle_line(line)
+        events = [q.get_nowait() for _ in range(q.qsize())]
+        st = [e for e in events if e.kind == "status"][-1].data
+        self.assertEqual((st["rfpower"], st["max_power"], st["tunepower"]), (23, 100, 15))
+        self.assertTrue(st["changes_allowed"])
+        self.assertEqual(st["mode"], "CW")
+        self.assertEqual(c.handle, "6016AA69")
+
+    def test_parse_info(self):
+        from geniusctl.devices import parse_flex_info
+        info = parse_flex_info('model="FLEX-6600",name="WS7M-6600",num_tx=1,location=""')
+        self.assertEqual(info["model"], "FLEX-6600")
+        self.assertEqual(info["name"], "WS7M-6600")
+        self.assertEqual(info["location"], "")
 
 
 if __name__ == "__main__":
