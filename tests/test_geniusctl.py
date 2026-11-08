@@ -33,6 +33,24 @@ class ConversionTests(unittest.TestCase):
                               "relayC1": 44})
 
 
+class TunerDecodeTests(unittest.TestCase):
+    # Captured from a real 3WAY TGXL (firmware 1.2.44) on ANT 1.
+    REAL = ("fwd=23.30 peak=23.77 max=63.00 swr=-60.0000 pttA=0 bandA=6 modeA=1 flexA=WS7M-6600 "
+            "freqA=14074.000 bypassA=0 bypassRxA=0 antA=0 pttB=0 bandB=0 modeB=0 flexB= freqB=0.000 "
+            "bypassB=0 bypassRxB=0 antB=0 state=1 active=1 tuning=0 bypass=0 ag=0 relayC1=16 "
+            "relayL=8 relayC2=4")
+
+    def test_antenna_is_zero_based_on_wire(self):
+        c = TunerGeniusClient(queue.Queue())
+        for wire, shown in (("0", 1), ("1", 2), ("2", 3)):
+            st = c.decode_status(parse_key_values(self.REAL.replace("antA=0", f"antA={wire}")))
+            self.assertEqual(st["antenna"], shown)
+        st = c.decode_status(parse_key_values(self.REAL))
+        self.assertEqual((st["c1"], st["l"], st["c2"]), (16, 8, 4))
+        self.assertTrue(st["operate"])
+        self.assertFalse(st["bypass"])
+
+
 class SimulatorRoundTrip(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

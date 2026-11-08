@@ -118,7 +118,7 @@ class Handler(socketserver.StreamRequestHandler):
             self.reply_raw(
                 f"S0|status fwd={fwd:.2f} peak={fwd:.2f} max=62.43 swr={swr:.4f} "
                 f"pttA={ptt} bandA=20 modeA=1 flexA=SIM-6600 freqA=14205.000 bypassA={sh.tg_bypass} "
-                f"bypassRxA=0 antA={sh.tg_ant} pttB=0 bandB=0 modeB=0 flexB= freqB=0.000 bypassB=0 "
+                f"bypassRxA=0 antA={sh.tg_ant - 1} pttB=0 bandB=0 modeB=0 flexB= freqB=0.000 bypassB=0 "
                 f"bypassRxB=0 antB=0 state={sh.tg_operate} active=1 tuning={int(tuning)} "
                 f"bypass={sh.tg_bypass} ag=0 relayC1={c1} relayL={l} relayC2={c2}")
         elif cmd == "info":

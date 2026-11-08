@@ -84,9 +84,12 @@ class TunerGeniusClient(GeniusClient):
 
     # Status ---------------------------------------------------------------
     def decode_status(self, raw: dict) -> dict:
-        ant = _int(raw.get("antA", 0))
-        if not ant and not self.three_way:
-            ant = _int(raw.get("active", 0))
+        if self.three_way:
+            # antA is zero-based on the wire: 0 = ANT 1, 1 = ANT 2, 2 = ANT 3
+            # (confirmed against a 3WAY unit on firmware 1.2.44).
+            ant = _int(raw.get("antA"), -1) + 1
+        else:
+            ant = _int(raw.get("active"))
         return {
             "raw": raw,
             "fwd_w": dbm_to_watts(raw.get("fwd"), floor_dbm=0.0),
