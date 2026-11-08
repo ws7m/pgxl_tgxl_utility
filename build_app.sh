@@ -15,6 +15,7 @@ rm -rf "dist/Genius Control.app" build/pyinstaller
 "$VENV/bin/pyinstaller" --noconfirm --clean --windowed \
     --name "Genius Control" \
     --osx-bundle-identifier local.geniuscontrol.app \
+    --icon "$(pwd)/assets/GeniusControl.icns" \
     --workpath build/pyinstaller --specpath build/pyinstaller --distpath dist \
     genius_control.py
 

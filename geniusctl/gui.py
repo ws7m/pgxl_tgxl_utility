@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import time
+from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -547,7 +548,21 @@ class App:
         self.root.destroy()
 
 
+ICON_PNG = Path(__file__).resolve().parents[1] / "assets" / "icon.png"
+
+
+def _set_icon(root: tk.Tk):
+    """Window/Dock icon when run from source (the .app bundle uses its .icns)."""
+    if ICON_PNG.exists():
+        try:
+            root._icon = tk.PhotoImage(file=str(ICON_PNG))  # keep a reference
+            root.iconphoto(True, root._icon)
+        except tk.TclError:
+            pass
+
+
 def main():
     root = tk.Tk()
+    _set_icon(root)
     App(root)
     root.mainloop()

@@ -68,3 +68,14 @@ radio keys up periodically. Set both addresses to `127.0.0.1` in Settings.
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+## App icon
+
+The icon is made from a screenshot of the app (`assets/icon-source.png`). To
+regenerate it from a new screenshot:
+
+```bash
+build/venv/bin/pip install pillow
+build/venv/bin/python tools/make_icon.py path/to/screenshot.png
+./build_app.sh
+```
