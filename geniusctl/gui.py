@@ -667,7 +667,33 @@ def _set_icon(root: tk.Tk):
             pass
 
 
+OLD_TK_MESSAGE = (
+    "This Python uses Tcl/Tk {tk}, which draws blank windows on current macOS. "
+    "Genius Control needs Tcl/Tk 8.6 or newer.\n\n"
+    "Install Python from python.org (it includes a current Tk), then run the app "
+    "with that Python or rebuild it with ./build_app.sh.\n\nPython in use: {exe}"
+)
+
+
+def _check_tk() -> bool:
+    """Refuse to start on Tk older than 8.6 (e.g. Apple's /usr/bin/python3)."""
+    if tk.TkVersion >= 8.6:
+        return True
+    import subprocess
+    import sys
+
+    msg = OLD_TK_MESSAGE.format(tk=tk.TkVersion, exe=sys.executable)
+    print(msg, file=sys.stderr)
+    if sys.platform == "darwin":  # a native alert, since Tk itself can't draw one
+        script = ('display alert "Genius Control can\'t start" message '
+                  + '"' + msg.replace("\\", "\\\\").replace('"', '\\"') + '" as critical')
+        subprocess.run(["osascript", "-e", script], check=False)
+    return False
+
+
 def main():
+    if not _check_tk():
+        raise SystemExit(1)
     root = tk.Tk()
     _set_icon(root)
     App(root)

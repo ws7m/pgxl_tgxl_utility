@@ -8,6 +8,20 @@ packages to install. It runs on macOS, Windows and Linux with Python 3.10+.
 python3 genius_control.py
 ```
 
+### Requirements
+
+Python 3.10 or newer **with Tcl/Tk 8.6+**. Apple's built-in `/usr/bin/python3`
+has Tcl/Tk 8.5, which draws an empty window on current macOS. Install Python
+from [python.org](https://www.python.org/downloads/macos/), which includes a
+current Tk, or use Homebrew's `brew install python-tk@3.13`. Check with:
+
+```bash
+python3 -c "import tkinter; print(tkinter.Tcl().eval('info patchlevel'))"
+```
+
+The app refuses to start on an old Tk and explains why. `build_app.sh` looks
+for a suitable Python on its own; set `PYTHON=/path/to/python3` to choose one.
+
 ### macOS app
 
 ```bash
