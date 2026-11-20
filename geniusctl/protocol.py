@@ -57,6 +57,8 @@ class GeniusClient:
 
     device = "genius"
     status_via_reply = False  # True: status arrives as R<seq>|0|..., False: as S<n>|status ...
+    # Commands not written to the log (sent in bursts); their errors still are.
+    quiet_prefixes: tuple[str, ...] = ("status",)
 
     def __init__(self, events: "queue.Queue[Event]"):
         self.events = events
@@ -113,7 +115,7 @@ class GeniusClient:
                 self._pending.pop(seq, None)
                 self._emit("error", text=f"Send failed: {exc}")
                 return None
-        if command != "status":
+        if not command.startswith(self.quiet_prefixes):
             self._emit("log", text=f"> C{seq}|{command}")
         return seq
 
@@ -235,11 +237,11 @@ class GeniusClient:
                 command, callback = self._pending.pop(seq, ("", None))
             if seq == self._status_seq:
                 self._status_seq = None
-            if command and command != "status":
+            if command and not command.startswith(self.quiet_prefixes):
                 self._emit("reply", {"command": command, "code": code, "message": message},
                            text=f"< {line}")
-                if code != 0:
-                    self._emit("error", text=f"'{command}' failed: 0x{code:X} {message}")
+            if command and code != 0:
+                self._emit("error", text=f"'{command}' failed: 0x{code:X} {message}")
             if callback:
                 callback(code, message)
         elif kind.startswith("S"):

@@ -78,6 +78,11 @@ Settings are stored in `~/Library/Application Support/GeniusControl` (macOS),
   - **STBY/OPR** switches the tuner between standby and operate.
   - **BYP** switches bypass on and off (orange = bypassed).
   - **TUNE** (the large button) starts an autotune cycle (red while tuning).
+  - **C1 / L / C2 dials:** drag a dial up or down to move that relay bank
+    (2 px per step; hold Shift for 8 px per step), or scroll on it for single
+    steps. The TGXL only moves one step per command, about 100 ms each, so after
+    a fast drag the dial shows where you are going and the tuner catches up.
+    The dials are locked while the tuner runs a tune cycle.
 - *Power Genius XL*: output power, SWR and drain current (Id) meters, the state (STANDBY / IDLE / TRANSMIT_A …), band, temperature, Vdd,
   Vac, and an **OPERATE / STANDBY** button.
 
@@ -107,7 +112,7 @@ Both devices use the 4O3A ASCII protocol: `C<seq>|cmd` → `R<seq>|<hex>|msg`.
 
 | Device | Port | Status | Commands used |
 |---|---|---|---|
-| TGXL | 9010 | `status` → `S<n>\|status k=v …` | `autotune`, `activate ant=N`, `bypass set=0/1`, `operate set=0/1`, `info` |
+| TGXL | 9010 | `status` → `S<n>\|status k=v …` | `autotune`, `activate ant=N`, `bypass set=0/1`, `operate set=0/1`, `tune relay=0/1/2 move=1/-1`, `info` |
 | PGXL | 9008 | `status` → `R<seq>\|0\|k=v …` | `operate=0/1` |
 | FlexRadio | 4992 | `sub tx all`, `sub slice all` → pushed `S<handle>\|transmit …` / `slice <n> …` | `transmit set rfpower=N`, `transmit set tunepower=N`, `transmit tune 0/1`, `slice tune <n> <MHz>`, `info` |
 

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import threading
+import time
+
 from .protocol import GeniusClient, parse_key_values
 
 # Units on the wire: power in dBm, SWR as return loss in dB (negative, -60 = no RF).
@@ -53,10 +56,25 @@ class TunerGeniusClient(GeniusClient):
     device = "tgxl"
     status_via_reply = False
     default_port = 9010
+    quiet_prefixes = ("status", "tune relay=")
+
+    RELAYS = ("C1", "L", "C2")  # relay= index on the wire
+    RELAY_REPLY_TIMEOUT_S = 2.0
 
     def __init__(self, events):
         super().__init__(events)
         self.three_way = True
+        # Manual relay moves: the TGXL only accepts one step at a time
+        # ('tune relay=<0|1|2> move=<1|-1>', ~100 ms each), so requested moves
+        # are kept as a net step count per relay and sent one step at a time,
+        # each after the previous one is acknowledged.
+        self._relay_lock = threading.Lock()
+        self._relay_pending = [0, 0, 0]
+        self._relay_inflight_at: float | None = None
+
+    def start(self, host, port, poll_interval=0.5, terminator="\n"):
+        self._reset_relay_moves()
+        super().start(host, port, poll_interval, terminator)
 
     def on_connected(self):
         def got_info(code, message):
@@ -81,6 +99,55 @@ class TunerGeniusClient(GeniusClient):
 
     def set_operate(self, on: bool):
         return self.send(f"operate set={1 if on else 0}")
+
+    # Manual relay moves ---------------------------------------------------
+    def move_relay(self, relay: int, steps: int):
+        """Queue a manual move of relay bank 0=C1, 1=L, 2=C2 by `steps` (+/-)."""
+        if relay not in (0, 1, 2) or not steps:
+            return
+        with self._relay_lock:
+            self._relay_pending[relay] += int(steps)
+        self._pump_relays()
+
+    def relay_moves_pending(self) -> bool:
+        with self._relay_lock:
+            return any(self._relay_pending) or self._relay_inflight_at is not None
+
+    def _reset_relay_moves(self):
+        with self._relay_lock:
+            self._relay_pending = [0, 0, 0]
+            self._relay_inflight_at = None
+
+    def _pump_relays(self):
+        with self._relay_lock:
+            now = time.monotonic()
+            if self._relay_inflight_at is not None:
+                if now - self._relay_inflight_at < self.RELAY_REPLY_TIMEOUT_S:
+                    return  # wait for the step in flight to be acknowledged
+                self._relay_inflight_at = None  # reply lost: carry on
+            relay = next((i for i, n in enumerate(self._relay_pending) if n), None)
+            if relay is None:
+                return
+            step = 1 if self._relay_pending[relay] > 0 else -1
+            self._relay_pending[relay] -= step
+            self._relay_inflight_at = now
+        if self.send(f"tune relay={relay} move={step}", self._relay_done) is None:
+            self._reset_relay_moves()
+
+    def _relay_done(self, code: int, _message: str):
+        with self._relay_lock:
+            self._relay_inflight_at = None
+            if code != 0:  # refused (error already reported): drop the rest
+                self._relay_pending = [0, 0, 0]
+        self._pump_relays()
+
+    def _poll_status(self, now: float):
+        self._pump_relays()  # recovers if a step's reply was lost
+        super()._poll_status(now)
+
+    def _close(self):
+        super()._close()
+        self._reset_relay_moves()
 
     # Status ---------------------------------------------------------------
     def decode_status(self, raw: dict) -> dict:

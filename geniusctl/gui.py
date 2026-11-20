@@ -88,11 +88,15 @@ class TunerPanel:
         bottom.grid(row=4, column=0, columnspan=3, sticky="ew")
         knobs = tk.Frame(bottom, bg=PANEL)
         knobs.pack(side="left")
-        self.c1 = RelayKnob(knobs, "C1")
-        self.l = RelayKnob(knobs, "L")
-        self.c2 = RelayKnob(knobs, "C2")
-        for k in (self.c1, self.l, self.c2):
+        # Drag a dial up/down (Shift: fine) or scroll to move that relay bank.
+        self.c1 = RelayKnob(knobs, "C1", on_change=lambda v: self._relay_changed(0, v))
+        self.l = RelayKnob(knobs, "L", on_change=lambda v: self._relay_changed(1, v))
+        self.c2 = RelayKnob(knobs, "C2", on_change=lambda v: self._relay_changed(2, v))
+        self.knobs = (self.c1, self.l, self.c2)
+        for k in self.knobs:
             k.pack(side="left", padx=0)
+        self._relay_sent = [None, None, None]  # value each dial last asked for
+        self._relay_hold_until = 0.0
 
         btns = tk.Frame(bottom, bg=PANEL)
         btns.pack(side="right", fill="y")
@@ -128,13 +132,26 @@ class TunerPanel:
     def tune(self):
         self.app.tgxl.tune()
 
+    RELAY_HOLD_S = 1.0  # after a manual move, keep showing the requested value this long
+
+    def _relay_changed(self, relay: int, value: int):
+        sent = self._relay_sent[relay]
+        if sent is None:
+            sent = self.status.get(("c1", "l", "c2")[relay], value)
+        self._relay_sent[relay] = value
+        self._relay_hold_until = time.monotonic() + self.RELAY_HOLD_S
+        self.app.tgxl.move_relay(relay, value - sent)
+
     # Updates ---------------------------------------------------------------
     def set_connected(self, connected: bool, info: str = ""):
         self.dot.set(GREEN if connected else RED)
         self.info.configure(text=info or ("Connected" if connected else "Disconnected"))
         for b in self.ant_btns + [self.oper_btn, self.byp_btn, self.tune_btn]:
             b.set_enabled(connected)
+        for k in self.knobs:
+            k.set_enabled(connected)
         if not connected:
+            self._relay_sent = [None, None, None]
             self.status = {}
             self.pwr.set(0)
             self.swr.set(1.0)
@@ -184,9 +201,21 @@ class TunerPanel:
         else:
             self.state_lbl.configure(text="STANDBY", fg=YELLOW)
 
-        self.c1.set(st["c1"])
-        self.l.set(st["l"])
-        self.c2.set(st["c2"])
+        # Manual relay moves are disabled while the tuner runs its own tune cycle.
+        for k in self.knobs:
+            k.set_enabled(not st["tuning"])
+        # Follow the tuner's reported relays unless the user is moving them:
+        # while dragging, while steps are still being sent, and briefly after.
+        pending = self.app.tgxl.relay_moves_pending()
+        if pending:  # keep holding until shortly after the last step is acknowledged
+            self._relay_hold_until = max(self._relay_hold_until,
+                                         time.monotonic() + self.RELAY_HOLD_S)
+        moving = (any(k.dragging for k in self.knobs) or pending
+                  or time.monotonic() < self._relay_hold_until)
+        if not moving:
+            for i, (knob, key) in enumerate(zip(self.knobs, ("c1", "l", "c2"))):
+                knob.set(st[key])
+                self._relay_sent[i] = st[key]
 
 
 class AmpPanel:

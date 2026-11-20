@@ -33,6 +33,45 @@ class ConversionTests(unittest.TestCase):
                               "relayC1": 44})
 
 
+class RelayKnobTests(unittest.TestCase):
+    def test_drag_and_wheel(self):
+        import tkinter as tk
+        from geniusctl.widgets import RelayKnob
+        try:
+            root = tk.Tk()
+        except tk.TclError:
+            self.skipTest("no display")
+        try:
+            changes = []
+            k = RelayKnob(root, "C1", on_change=changes.append)
+            k.pack()
+            root.update()
+            k.set(100)
+            k.event_generate("<ButtonPress-1>", x=20, y=30)  # disabled: ignored
+            k.event_generate("<B1-Motion>", x=20, y=10)
+            k.event_generate("<ButtonRelease-1>", x=20, y=10)
+            self.assertEqual((k.value, changes), (100, []))
+            k.set_enabled(True)
+            k.event_generate("<ButtonPress-1>", x=20, y=30)
+            k.event_generate("<B1-Motion>", x=20, y=20)  # up 10 px = +5 steps
+            self.assertTrue(k.dragging)
+            k.set(7)  # status updates don't move it while dragging
+            k.event_generate("<B1-Motion>", x=20, y=40)  # down 10 px from start = -5
+            k.event_generate("<ButtonRelease-1>", x=20, y=40)
+            self.assertEqual(k.value, 95)
+            self.assertEqual(changes[0], 105)
+            k.event_generate("<MouseWheel>", delta=120, x=20, y=20)
+            k.event_generate("<Button-5>", x=20, y=20)
+            self.assertEqual(changes[-2:], [96, 95])
+            k.set(254)
+            k.event_generate("<ButtonPress-1>", x=20, y=30)
+            k.event_generate("<B1-Motion>", x=20, y=0)  # clamps at 255
+            k.event_generate("<ButtonRelease-1>", x=20, y=0)
+            self.assertEqual(k.value, 255)
+        finally:
+            root.destroy()
+
+
 class TunerDecodeTests(unittest.TestCase):
     # Captured from a real 3WAY TGXL (firmware 1.2.44) on ANT 1.
     REAL = ("fwd=23.30 peak=23.77 max=63.00 swr=-60.0000 pttA=0 bandA=6 modeA=1 flexA=WS7M-6600 "
@@ -92,6 +131,36 @@ class SimulatorRoundTrip(unittest.TestCase):
             c.tune()
             ev = self._wait(q, lambda e: e.kind == "status" and e.data["tuning"])
             self.assertGreater(ev.data["fwd_w"], 0)
+        finally:
+            c.stop()
+
+    def test_tgxl_manual_relay_moves(self):
+        q = queue.Queue()
+        c = TunerGeniusClient(q)
+        c.start("127.0.0.1", self.servers[0].server_address[1], poll_interval=0.1)
+        try:
+            self._wait(q, lambda e: e.kind == "connected")
+            # (an earlier test may have left the simulated tuner mid-tune)
+            start = self._wait(q, lambda e: e.kind == "status" and not e.data["tuning"],
+                               timeout=6).data
+            c1, l = start["c1"], start["l"]
+            up = min(5, 255 - c1)
+            c.move_relay(0, up)
+            c.move_relay(1, 3)
+            c.move_relay(1, -3)  # cancels out: nothing is sent for L
+            self._wait(q, lambda e: e.kind == "status" and e.data["c1"] == c1 + up, timeout=5)
+            deadline = time.monotonic() + 3
+            while c.relay_moves_pending() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertFalse(c.relay_moves_pending())
+            st = self._wait(q, lambda e: e.kind == "status").data
+            self.assertEqual((st["c1"], st["l"]), (c1 + up, l))
+            c.move_relay(0, -up)  # and back
+            self._wait(q, lambda e: e.kind == "status" and e.data["c1"] == c1, timeout=5)
+            events = []
+            while not q.empty():
+                events.append(q.get_nowait())
+            self.assertFalse([e for e in events if e.kind == "log" and "tune relay" in e.text])
         finally:
             c.stop()
 

@@ -109,6 +109,8 @@ class Handler(socketserver.StreamRequestHandler):
 
     def dispatch(self, seq, cmd):
         sh = self.shared
+        if self.kind == "tgxl" and cmd.startswith("tune relay="):
+            time.sleep(0.1)  # the real tuner takes ~100 ms per relay step
         with sh.lock:
             if self.kind == "tgxl":
                 self.tgxl(seq, cmd, sh)
@@ -191,6 +193,15 @@ class Handler(socketserver.StreamRequestHandler):
                 f"bypass={sh.tg_bypass} ag=0 relayC1={c1} relayL={l} relayC2={c2}")
         elif cmd == "info":
             self.reply(seq, 0, "3way=1 serial=SIM-0001 nickname=SimTuner")
+        elif cmd.startswith("tune relay="):
+            kv = dict(part.split("=", 1) for part in cmd.split()[1:] if "=" in part)
+            relay, move = kv.get("relay"), kv.get("move")
+            if relay in ("0", "1", "2") and move in ("1", "-1"):  # only single steps
+                bank = sh.relays[sh.tg_ant]
+                bank[int(relay)] = max(0, min(255, bank[int(relay)] + int(move)))
+                self.reply(seq)
+            else:
+                self.reply(seq, 1, "Invalid relay= or move=")
         elif cmd == "autotune":
             sh.tg_tune_until = now + sh.tune_secs
             sh.swr_by_ant[sh.tg_ant] = round(random.uniform(1.05, 1.3), 2)

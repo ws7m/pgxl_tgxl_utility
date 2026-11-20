@@ -155,24 +155,92 @@ class BarMeter(tk.Canvas):
 
 
 class RelayKnob(tk.Canvas):
-    """Read-only dial showing a relay bank position (0-255), like the TGXL C1/L/C2."""
+    """Dial showing a relay bank position (0-255), like the TGXL C1/L/C2.
 
-    def __init__(self, master, label, size=46, vmax=255):
+    Drag up/down on it to change the value (Shift for fine control), or use the
+    scroll wheel for single steps. on_change(value) fires for each new value.
+    """
+
+    PX_PER_STEP = 2.0  # vertical pixels per step while dragging
+    PX_PER_STEP_FINE = 8.0  # with Shift held
+
+    def __init__(self, master, label, size=46, vmax=255, on_change=None):
         super().__init__(master, width=size + 8, height=size + 18, bg=PANEL, highlightthickness=0)
         self.label, self.size, self.vmax = label, size, vmax
+        self.on_change = on_change
         self.value = 0
+        self.enabled = False
+        self.dragging = False
+        self.hover = False
+        self._y0 = 0
+        self._v0 = 0
+        self._fine = False
+        self.bind("<ButtonPress-1>", self._press)
+        self.bind("<B1-Motion>", self._drag)
+        self.bind("<ButtonRelease-1>", self._release)
+        self.bind("<MouseWheel>", lambda e: e.delta and self._nudge(1 if e.delta > 0 else -1))
+        self.bind("<Button-4>", lambda e: self._nudge(1))
+        self.bind("<Button-5>", lambda e: self._nudge(-1))
+        self.bind("<Enter>", lambda e: self._set_hover(True))
+        self.bind("<Leave>", lambda e: self._set_hover(False))
         self._draw()
 
     def set(self, value):
+        """Set from device status (ignored while the user is dragging)."""
+        if not self.dragging and value != self.value:
+            self.value = value
+            self._draw()
+
+    def set_enabled(self, enabled: bool):
+        if enabled != self.enabled:
+            self.enabled = enabled
+            if not enabled:
+                self.dragging = False
+            self.configure(cursor="sb_v_double_arrow" if enabled else "arrow")
+            self._draw()
+
+    def _set_hover(self, hover):
+        self.hover = hover
+        self._draw()
+
+    def _change(self, value):
+        value = max(0, min(self.vmax, int(value)))
         if value != self.value:
             self.value = value
             self._draw()
+            if self.on_change:
+                self.on_change(value)
+
+    def _press(self, event):
+        if self.enabled:
+            self.dragging = True
+            self._y0, self._v0 = event.y, self.value
+            self._fine = bool(event.state & 0x1)
+
+    def _drag(self, event):
+        if not (self.enabled and self.dragging):
+            return
+        fine = bool(event.state & 0x1)  # Shift
+        if fine != self._fine:  # re-anchor so switching precision doesn't jump
+            self._y0, self._v0, self._fine = event.y, self.value, fine
+        per_step = self.PX_PER_STEP_FINE if fine else self.PX_PER_STEP
+        self._change(self._v0 + int((self._y0 - event.y) / per_step))
+
+    def _release(self, _event):
+        self.dragging = False
+        self._draw()
+
+    def _nudge(self, steps):
+        if self.enabled and not self.dragging:
+            self._change(self.value + steps)
 
     def _draw(self):
         self.delete("all")
         s, o = self.size, 4
         cx, cy, r = o + s / 2, o + s / 2, s / 2
-        self.create_oval(o, o, o + s, o + s, fill=KNOB, outline="#1a5bb5", width=2)
+        active = self.enabled and (self.hover or self.dragging)
+        outline = TEXT if self.dragging else ("#4d8fe6" if active else "#1a5bb5")
+        self.create_oval(o, o, o + s, o + s, fill=KNOB, outline=outline, width=2)
         # 270-degree sweep from lower-left (min) to lower-right (max)
         frac = min(1.0, max(0.0, self.value / self.vmax))
         angle = math.radians(225 - 270 * frac)
@@ -181,7 +249,7 @@ class RelayKnob(tk.Canvas):
         self.create_line(cx - (x - cx) * 0.25, cy - (y - cy) * 0.25, x, y,
                          fill="white", width=2, capstyle="round")
         self.create_text(cx, o + s + 8, text=f"{self.label}  {self.value}",
-                         fill=TEXT, font=FONT_SMALL)
+                         fill=TEXT if not self.dragging else "white", font=FONT_SMALL)
 
 
 class StatusDot(tk.Canvas):
