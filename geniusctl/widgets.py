@@ -31,6 +31,7 @@ ORANGE = "#d27a2a"
 FONT = ("Helvetica", 12)
 FONT_SMALL = ("Helvetica", 9)
 FONT_BOLD = ("Helvetica", 12, "bold")
+FONT_SMALL_BOLD = ("Helvetica", 10, "bold")
 FONT_BIG = ("Helvetica", 13, "bold")
 FONT_VALUE = ("Menlo", 13, "bold")
 

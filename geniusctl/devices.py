@@ -156,8 +156,9 @@ class FlexRadioClient(GeniusClient):
     """FlexRadio SmartSDR API, TCP port 4992.
 
     On connect the radio sends 'V<version>' then 'H<handle>'. There is no status
-    poll: after 'sub tx all' the radio pushes 'S<handle>|transmit k=v ...' lines
-    (often only the keys that changed), which are merged into one state dict.
+    poll: after 'sub tx all' / 'sub slice all' the radio pushes
+    'S<handle>|transmit k=v ...' and 'S<handle>|slice <n> k=v ...' lines (often
+    only the keys that changed), which are merged into state dicts.
     """
 
     device = "flex"
@@ -167,9 +168,11 @@ class FlexRadioClient(GeniusClient):
         super().__init__(events)
         self.handle = ""
         self.tx: dict = {}
+        self.slices: dict[int, dict] = {}
 
     def start(self, host, port, poll_interval=0.5, terminator="\n"):
         self.tx = {}
+        self.slices = {}
         super().start(host, port, poll_interval, "\n")
 
     def on_connected(self):
@@ -180,6 +183,7 @@ class FlexRadioClient(GeniusClient):
 
         self.send("info", got_info)
         self.send("sub tx all")
+        self.send("sub slice all")
 
     def _poll_status(self, now: float):
         pass  # the radio pushes transmit status after 'sub tx all'
@@ -193,11 +197,43 @@ class FlexRadioClient(GeniusClient):
             if rest.startswith("transmit "):
                 self.tx.update(parse_key_values(rest[len("transmit "):]))
                 self._emit("status", self.decode_status(dict(self.tx)), text=rest.strip())
-            return  # other radio status (slices, eq, ...) is not needed here
+            elif rest.startswith("slice "):
+                self._slice_status(rest[len("slice "):])
+            return  # other radio status (eq, panadapters, ...) is not needed here
         if kind.startswith("M"):
             self._emit("log", text=f"< {line}")
             return
         super()._handle_line(line)
+
+    def _slice_status(self, text: str):
+        index_txt, _, body = text.partition(" ")
+        try:
+            index = int(index_txt)
+        except ValueError:
+            return
+        kv = parse_key_values(body)
+        if _int(kv.get("in_use"), 1) == 0:
+            self.slices.pop(index, None)
+        else:
+            self.slices.setdefault(index, {}).update(kv)
+
+    def tx_slice(self) -> tuple[int, float] | None:
+        """(index, frequency in MHz) of the transmit slice, or None if unknown."""
+        for index, kv in sorted(self.slices.items()):
+            if _int(kv.get("tx")) == 1:
+                return index, _float(kv.get("RF_frequency"))
+        return None
+
+    def tune_slice(self, index: int, mhz: float):
+        return self.send(f"slice tune {int(index)} {mhz:.6f}")
+
+    def set_tune_power(self, value: int):
+        value = max(0, min(100, int(value)))
+        return self.send(f"transmit set tunepower={value}")
+
+    def set_tune(self, on: bool):
+        """Key/unkey the radio's tune carrier (at the tune power)."""
+        return self.send(f"transmit tune {1 if on else 0}")
 
     def set_rf_power(self, value: int):
         value = max(0, min(100, int(value)))

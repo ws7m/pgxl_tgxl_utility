@@ -47,6 +47,10 @@ class Settings:
     confirm_operate: bool = False
     always_on_top: bool = False
 
+    # Band Tune (remembered from the last run)
+    bandtune_band: str = "40m"
+    bandtune_step_khz: float = 10.0
+
     @property
     def terminator(self) -> str:
         return "\r\n" if self.line_ending == "CRLF" else "\n"

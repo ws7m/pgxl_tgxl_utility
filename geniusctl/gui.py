@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import queue
 import time
 from pathlib import Path
@@ -12,8 +13,10 @@ from . import __version__
 from .devices import FlexRadioClient, PowerGeniusClient, TunerGeniusClient
 from .protocol import Event
 from .settings import Settings, config_path
-from .widgets import (AMBER, BG, BORDER, DIM, FONT, FONT_BIG, FONT_BOLD, FONT_SMALL, FONT_VALUE,
-                      GREEN, GREY, ORANGE, PANEL, RED, TEXT, YELLOW, BarMeter, FlatButton,
+from .bandtune import BANDS, STEP_CHOICES_KHZ, BandTuner, TunerView, band_frequencies
+from .widgets import (AMBER, BG, BLUE, BLUE_DIM, BORDER, DIM, FONT, FONT_BIG, FONT_BOLD, FONT_SMALL,
+                      FONT_SMALL_BOLD, FONT_VALUE, GREEN, GREY, ORANGE, PANEL, RED, TEXT, YELLOW,
+                      BarMeter, FlatButton,
                       RelayKnob, Slider, StatusDot, power_ticks, power_zones, swr_ticks, swr_zones)
 
 STALE_AFTER_S = 3.0
@@ -94,12 +97,16 @@ class TunerPanel:
         btns.pack(side="right", fill="y")
         self.oper_btn = FlatButton(btns, "STBY", command=self.toggle_operate, fg=YELLOW, width=5)
         self.byp_btn = FlatButton(btns, "BYP", command=self.toggle_bypass, fg=ORANGE, width=5)
-        self.tune_btn = FlatButton(btns, "TUNE", command=self.tune, fg=TEXT, width=6)
-        self.oper_btn.grid(row=0, column=0, padx=2, pady=2)
-        self.byp_btn.grid(row=0, column=1, padx=2, pady=2)
-        self.tune_btn.grid(row=0, column=2, padx=2, pady=2)
-        self.ptt_out = tk.Label(btns, text="PTT OUT", fg=TEXT, bg=GREY, font=FONT_BOLD, pady=1)
-        self.ptt_out.grid(row=1, column=0, columnspan=3, sticky="ew", padx=2, pady=(4, 0))
+        self.ptt_out = tk.Label(btns, text="PTT OUT", fg=TEXT, bg=GREY, font=FONT_SMALL_BOLD,
+                                width=7, padx=4, pady=3, highlightthickness=1,
+                                highlightbackground=BORDER)
+        self.oper_btn.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+        self.byp_btn.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
+        self.ptt_out.grid(row=0, column=2, sticky="nsew", padx=2, pady=2)
+        # TUNE is used most, so it gets the whole second row and a bigger font.
+        self.tune_btn = FlatButton(btns, "TUNE", command=self.tune, fg=TEXT, font=FONT_BIG)
+        self.tune_btn.configure(pady=7)
+        self.tune_btn.grid(row=1, column=0, columnspan=3, sticky="ew", padx=2, pady=(4, 0))
 
         self.status: dict = {}
         self.last_status = 0.0
@@ -287,49 +294,45 @@ class AmpPanel:
         self.env_lbl.configure(text=f"{temp_txt}  Vdd {st['vdd']}  Vac {st['vac']}")
 
 
-class FlexPanel:
-    """FlexRadio: RF power slider (sent as 'transmit set rfpower=N')."""
+class PowerRow:
+    """A label (or button) + [-] slider [+] + value, sending changes to the radio.
 
-    SEND_DELAY_MS = 150  # while dragging, send at most this often
-    HOLD_S = 1.5  # after a local change, ignore older radio status for this long
+    While the user drags, the value is sent at most every SEND_DELAY_MS; after a
+    local change, radio status is ignored for HOLD_S so the slider doesn't jump
+    back to a stale value.
+    """
 
-    def __init__(self, master, app: "App"):
-        self.app = app
-        self.frame, body, self.dot, self.info = _panel(master, "FlexRadio")
-        body.columnconfigure(2, weight=1)
+    SEND_DELAY_MS = 150
+    HOLD_S = 1.5
 
-        tk.Label(body, text="RF PWR", fg=TEXT, bg=PANEL, font=("Helvetica", 10, "bold"),
-                 anchor="w").grid(row=0, column=0, sticky="nw", padx=(0, 4), pady=(2, 0))
-        self.minus = FlatButton(body, "\u2212", command=lambda: self.slider.step(-1), width=2,
+    def __init__(self, body, row, label_widget, send):
+        self.body, self.send_fn = body, send
+        label_widget.grid(row=row, column=0, sticky="nw", padx=(0, 4), pady=(2, 0))
+        self.minus = FlatButton(body, "−", command=lambda: self.slider.step(-1), width=2,
                                 font=FONT_BOLD)
-        self.minus.grid(row=0, column=1, sticky="n")
-        self.slider = Slider(body, 0, 100, width=180, on_change=self._changed, on_commit=self._commit)
-        self.slider.grid(row=0, column=2, sticky="ew", padx=2)
+        self.minus.grid(row=row, column=1, sticky="n")
+        self.slider = Slider(body, 0, 100, width=180, on_change=self._changed,
+                             on_commit=self._commit)
+        self.slider.grid(row=row, column=2, sticky="ew", padx=2)
         self.plus = FlatButton(body, "+", command=lambda: self.slider.step(1), width=2,
                                font=FONT_BOLD)
-        self.plus.grid(row=0, column=3, sticky="n")
+        self.plus.grid(row=row, column=3, sticky="n")
         self.value = tk.Label(body, text="--", fg=TEXT, bg=PANEL, font=FONT_VALUE, width=5,
                               anchor="e")
-        self.value.grid(row=0, column=4, sticky="ne")
-        self.detail = tk.Label(body, text="", fg=DIM, bg=PANEL, font=FONT_SMALL, anchor="w")
-        self.detail.grid(row=1, column=0, columnspan=5, sticky="w")
-
-        self.status: dict = {}
-        self.last_status = 0.0
-        self._sent_value = None
+        self.value.grid(row=row, column=4, sticky="ne")
+        self._sent = None
         self._local_until = 0.0
         self._after = None
-        self.set_connected(False)
 
     def _changed(self, value):
         self.value.configure(text=f"{value} W")
         self._local_until = time.monotonic() + self.HOLD_S
         if self._after is None:
-            self._after = self.frame.after(self.SEND_DELAY_MS, self._send_pending)
+            self._after = self.body.after(self.SEND_DELAY_MS, self._send_pending)
 
     def _commit(self, value):
         if self._after is not None:
-            self.frame.after_cancel(self._after)
+            self.body.after_cancel(self._after)
             self._after = None
         self._local_until = time.monotonic() + self.HOLD_S
         self._send(value)
@@ -339,42 +342,238 @@ class FlexPanel:
         self._send(self.slider.value)
 
     def _send(self, value):
-        if value != self._sent_value:
-            self._sent_value = value
-            self.app.flex.set_rf_power(value)
+        if value != self._sent:
+            self._sent = value
+            self.send_fn(value)
+
+    def set_enabled(self, enabled: bool):
+        for w in (self.slider, self.minus, self.plus):
+            w.set_enabled(enabled)
+
+    def reset(self):
+        self._sent = None
+        self.value.configure(text="--")
+
+    def update(self, value: int, vmax: int):
+        if value < 0:
+            return
+        self.slider.vmax = max(1, vmax)
+        if time.monotonic() >= self._local_until and not self.slider.dragging:
+            self.slider.set(value)
+            self._sent = value
+            self.value.configure(text=f"{value} W")
+
+
+class FlexPanel:
+    """FlexRadio: RF power and tune power sliders, and a TUNE carrier toggle."""
+
+    def __init__(self, master, app: "App"):
+        self.app = app
+        self.frame, body, self.dot, self.info = _panel(master, "FlexRadio")
+        body.columnconfigure(2, weight=1)
+
+        rf_label = tk.Label(body, text="RF PWR", fg=TEXT, bg=PANEL, font=FONT_SMALL_BOLD,
+                            anchor="w")
+        self.rf = PowerRow(body, 0, rf_label, lambda v: self.app.flex.set_rf_power(v))
+        # The tune-power "label" is a toggle button that keys the radio's tune carrier.
+        self.tune_btn = FlatButton(body, "TUNE", command=self.toggle_tune, width=6,
+                                   font=FONT_SMALL_BOLD)
+        self.tune = PowerRow(body, 1, self.tune_btn, lambda v: self.app.flex.set_tune_power(v))
+        self.tune_btn.grid_configure(pady=(4, 0))
+        self.detail = tk.Label(body, text="", fg=DIM, bg=PANEL, font=FONT_SMALL, anchor="w")
+        self.detail.grid(row=2, column=0, columnspan=5, sticky="w")
+
+        self.status: dict = {}
+        self.last_status = 0.0
+        self.set_connected(False)
+
+    def toggle_tune(self):
+        self.app.flex.set_tune(not self.status.get("tune", False))
 
     def set_connected(self, connected: bool, info: str = ""):
         self.dot.set(GREEN if connected else RED)
         self.info.configure(text=info or ("Connected" if connected else "Disconnected"))
-        for w in (self.slider, self.minus, self.plus):
-            w.set_enabled(connected)
+        for row in (self.rf, self.tune):
+            row.set_enabled(connected)
+        self.tune_btn.set_enabled(connected)
         if not connected:
             self.status = {}
-            self._sent_value = None
-            self.value.configure(text="--")
+            for row in (self.rf, self.tune):
+                row.reset()
+            self.tune_btn.style(text="TUNE", fg=TEXT, bg="#262626")
             self.detail.configure(text="")
 
     def update(self, st: dict):
         self.status, self.last_status = st, time.monotonic()
         allowed = st["changes_allowed"]
-        for w in (self.slider, self.minus, self.plus):
-            w.set_enabled(allowed)
-        if st["rfpower"] >= 0:
-            self.slider.vmax = max(1, st["max_power"])
-            if time.monotonic() >= self._local_until and not self.slider.dragging:
-                self.slider.set(st["rfpower"])
-                self._sent_value = st["rfpower"]
-                self.value.configure(text=f"{st['rfpower']} W")
+        for row in (self.rf, self.tune):
+            row.set_enabled(allowed)
+        self.rf.update(st["rfpower"], st["max_power"])
+        self.tune.update(st["tunepower"], st["max_power"])
+        if st["tune"]:
+            self.tune_btn.style(text="TUNE ON", fg="white", bg=RED)
+        else:
+            self.tune_btn.style(text="TUNE", fg=TEXT, bg="#262626")
         parts = []
         if st["freq_mhz"]:
             parts.append(f"TX {st['freq_mhz']:.3f} MHz")
         if st["mode"]:
             parts.append(str(st["mode"]))
-        if st["tunepower"] >= 0:
-            parts.append(f"Tune pwr {st['tunepower']}")
         if not allowed:
-            parts.append("RF power changes locked by radio")
+            parts.append("power changes locked by radio")
         self.detail.configure(text="   ".join(parts))
+
+
+class BandTunePanel:
+    """Step the radio across a band, running a TGXL tune cycle at each frequency."""
+
+    TICK_MS = 100
+
+    def __init__(self, master, app: "App"):
+        self.app = app
+        self.frame, body, self.dot, self.info = _panel(master, "Band Tune")
+        self.dot.set(GREY)
+        self.info.configure(text="")
+        self.seq = BandTuner(set_freq=self._set_freq, start_tune=lambda: self.app.tgxl.tune(),
+                             get_tuner=self._tuner_view)
+        self._slice = 0
+
+        row = tk.Frame(body, bg=PANEL)
+        row.pack(fill="x")
+        tk.Label(row, text="BAND", fg=TEXT, bg=PANEL, font=FONT_SMALL_BOLD).pack(side="left")
+        s = app.settings
+        self.band = tk.StringVar(value=s.bandtune_band if s.bandtune_band in BANDS else "40m")
+        self.band_box = ttk.Combobox(row, textvariable=self.band, values=list(BANDS), width=5,
+                                     state="readonly")
+        self.band_box.pack(side="left", padx=(4, 10))
+        tk.Label(row, text="STEP", fg=TEXT, bg=PANEL, font=FONT_SMALL_BOLD).pack(side="left")
+        self.step = tk.StringVar(value=f"{s.bandtune_step_khz:g}")
+        self.step_box = ttk.Combobox(row, textvariable=self.step, width=4,
+                                     values=[str(v) for v in STEP_CHOICES_KHZ])
+        self.step_box.pack(side="left", padx=(4, 2))
+        tk.Label(row, text="kHz", fg=DIM, bg=PANEL, font=FONT_SMALL).pack(side="left")
+        self.start_btn = FlatButton(row, "START", command=self.toggle, width=7, fg="white",
+                                    bg=GREEN)
+        self.start_btn.pack(side="right")
+        self.band.trace_add("write", lambda *_: self._show_range())
+
+        self.progress = tk.Canvas(body, height=4, bg=PANEL, highlightthickness=0)
+        self.progress.pack(fill="x", pady=(5, 1))
+        self.msg = tk.Label(body, text="", fg=DIM, bg=PANEL, font=FONT_SMALL, anchor="w",
+                            width=1)
+        self.msg.pack(fill="x")
+        self._show_range()
+        self.frame.after(self.TICK_MS, self._tick)
+
+    # Device glue -------------------------------------------------------------
+    def _set_freq(self, mhz: float):
+        self.app.flex.tune_slice(self._slice, mhz)
+
+    def _tuner_view(self) -> TunerView | None:
+        st = self.app.tuner.status
+        if not st:
+            return TunerView(self.app.tgxl.connected, False, False, False, 0.0, (0, 0, 0))
+        return TunerView(self.app.tgxl.connected, st["operate"], st["bypass"], st["tuning"],
+                         float(st.get("freq_khz") or 0), (st["c1"], st["l"], st["c2"]))
+
+    # Actions -----------------------------------------------------------------
+    def toggle(self):
+        if self.seq.running:
+            tuning = bool(self.app.tuner.status.get("tuning"))
+            self.seq.stop()
+            if tuning:
+                self.seq.message += " (the tune in progress finishes on its own)"
+            self._refresh()
+        else:
+            self.start()
+
+    def start(self):
+        band = self.band.get()
+        try:
+            step = float(self.step.get())
+            if not 0 < step <= 1000:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Band Tune", "The step must be a number of kHz between 0 and 1000.")
+            return
+        flex = self.app.flex
+        if not flex.connected:
+            self._error("FlexRadio is not connected")
+            return
+        tx = flex.tx_slice()
+        if tx is None:
+            self._error("No transmit slice found on the FlexRadio")
+            return
+        self._slice, original = tx
+        freqs = band_frequencies(band, step)
+        amp = self.app.amp.status
+        amp_note = ("\n\nThe Power Genius XL is in OPERATE." if amp.get("operate") else "")
+        if not messagebox.askyesno(
+                "Band Tune",
+                f"Tune {band} from {freqs[0]:.3f} to {freqs[-1]:.3f} MHz in {step:g} kHz steps?\n\n"
+                f"That is {len(freqs)} TGXL tune cycles, each transmitting a tune carrier. "
+                f"The radio returns to {original:.3f} MHz afterwards.{amp_note}"):
+            return
+        s = self.app.settings
+        s.bandtune_band, s.bandtune_step_khz = band, step
+        try:
+            s.save()
+        except OSError:
+            pass
+        if not self.seq.start(band, step, time.monotonic(), return_mhz=original):
+            self._error(self.seq.message)
+            return
+        self.app.settings_tab.append_log(f"BAND TUNE start {band} {step:g} kHz ({len(freqs)} steps)")
+        self._refresh()
+
+    def _error(self, text):
+        self.msg.configure(text=text, fg=RED)
+        self.dot.set(RED)
+
+    # Updates -----------------------------------------------------------------
+    def _show_range(self):
+        if self.seq.running:
+            return
+        band = self.band.get()
+        if band in BANDS:
+            low, high = BANDS[band]
+            self.msg.configure(text=f"{band}: {low:.3f} - {high:.3f} MHz", fg=DIM)
+
+    def _tick(self):
+        if self.seq.running:
+            if not self.app.flex.connected:
+                self.seq.stop("Stopped: FlexRadio disconnected")
+            else:
+                self.seq.tick(time.monotonic())
+            self._refresh()
+        self.frame.after(self.TICK_MS, self._tick)
+
+    def _refresh(self):
+        seq = self.seq
+        running = seq.running
+        if running:
+            self.start_btn.style(text="STOP", fg="white", bg=RED)
+        else:
+            self.start_btn.style(text="START", fg="white", bg=GREEN)
+        for box in (self.band_box, self.step_box):
+            box.configure(state="disabled" if running else ("readonly" if box is self.band_box
+                                                            else "normal"))
+        colors = {"done": GREEN, "error": RED, "stopped": YELLOW}
+        self.dot.set(AMBER if running else colors.get(seq.state, GREY))
+        self.msg.configure(text=seq.message, fg=TEXT if running else colors.get(seq.state, DIM))
+        if self._last_state != seq.state and seq.state in colors:
+            self.app.settings_tab.append_log(f"BAND TUNE {seq.message}")
+        self._last_state = seq.state
+        total = len(seq.freqs) or 1
+        done = len(seq.results)
+        self.progress.delete("all")
+        w = self.progress.winfo_width()
+        self.progress.create_rectangle(0, 0, w, 4, fill=BLUE_DIM, width=0)
+        self.progress.create_rectangle(0, 0, w * done / total, 4,
+                                       fill=GREEN if seq.state == "done" else BLUE, width=0)
+
+    _last_state = "idle"
+
 
 
 class SettingsTab:
@@ -477,7 +676,9 @@ class SettingsTab:
             var.set(getattr(s, key))
 
     def collect(self) -> Settings | None:
-        s = Settings()
+        # Start from the current settings so values not on this tab (e.g. the
+        # last Band Tune band/step) are kept.
+        s = dataclasses.replace(self.app.settings)
         for key, var in self.vars.items():
             default = getattr(s, key)
             raw = var.get()
@@ -551,6 +752,8 @@ class App:
         self.amp.frame.pack(fill="x", padx=4, pady=(2, 2))
         self.radio = FlexPanel(control, self)
         self.radio.frame.pack(fill="x", padx=4, pady=(2, 2))
+        self.bandtune = BandTunePanel(control, self)
+        self.bandtune.frame.pack(fill="x", padx=4, pady=(2, 2))
         self.clients = {"tgxl": self.tgxl, "pgxl": self.pgxl, "flex": self.flex}
         self.panels = {"tgxl": self.tuner, "pgxl": self.amp, "flex": self.radio}
         self.statusbar = tk.Label(control, text="", fg=DIM, bg=BG, font=FONT_SMALL, anchor="w", width=1)
@@ -649,6 +852,8 @@ class App:
         self.root.after(1000, self._watchdog)
 
     def quit(self):
+        if self.bandtune.seq.running:
+            self.bandtune.seq.stop()  # puts the radio back on its original frequency
         for client in self.clients.values():
             client.stop()
         self.root.destroy()

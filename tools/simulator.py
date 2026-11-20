@@ -45,15 +45,21 @@ class Shared:
         self.pg_operate = 0
         # radio
         self.rfpower = 50
+        self.tunepower = 15
+        self.flex_tune = 0
+        self.freq_mhz = 14.205
+        self.tune_secs = 3.0
         self.flex_clients = []
 
     def tx(self) -> bool:
         tuning = time.monotonic() < self.tg_tune_until
-        return tuning or (time.monotonic() - self.t0) % self.tx_every < self.tx_len
+        return tuning or bool(self.flex_tune) or (time.monotonic() - self.t0) % self.tx_every < self.tx_len
 
     def drive_w(self) -> float:
         if time.monotonic() < self.tg_tune_until:
             return 10.0
+        if self.flex_tune:
+            return self.tunepower * 0.9
         return self.rfpower * 0.9 + random.uniform(-1, 1) if self.tx() and self.rfpower else 0.0
 
     def out_w(self) -> float:
@@ -113,8 +119,22 @@ class Handler(socketserver.StreamRequestHandler):
 
     # ---------------------------------------------------------------- FlexRadio
     def flex_tx_status(self, sh: Shared):
-        return (f"S{self.handle_id}|transmit freq=14.205000 rfpower={sh.rfpower} tunepower=15 "
-                f"tx_slice_mode=USB max_power_level=100 tx_rf_power_changes_allowed=1 tune=0")
+        return (f"S{self.handle_id}|transmit freq={sh.freq_mhz:.6f} rfpower={sh.rfpower} "
+                f"tunepower={sh.tunepower} tx_slice_mode=USB max_power_level=100 "
+                f"tx_rf_power_changes_allowed=1 tune={sh.flex_tune}")
+
+    def flex_slice_status(self, sh: Shared):
+        return (f"S{self.handle_id}|slice 0 in_use=1 RF_frequency={sh.freq_mhz:.6f} mode=USB "
+                f"tx=1 active=1 rxant=ANT1 txant=ANT1")
+
+    @staticmethod
+    def flex_push(sh: Shared, status):
+        """Send a status line to every subscribed client (like the radio does)."""
+        for client in list(sh.flex_clients):
+            try:
+                client.reply_raw(status(client))
+            except OSError:
+                sh.flex_clients.remove(client)
 
     def flex(self, seq, cmd, sh: Shared):
         if cmd == "info":
@@ -123,15 +143,31 @@ class Handler(socketserver.StreamRequestHandler):
         elif cmd == "sub tx all":
             self.reply(seq)
             self.reply_raw(self.flex_tx_status(sh))
-            sh.flex_clients.append(self)
-        elif cmd.startswith("transmit set rfpower="):
-            sh.rfpower = max(0, min(100, int(cmd.split("=")[1])))
+            if self not in sh.flex_clients:
+                sh.flex_clients.append(self)
+        elif cmd == "sub slice all":
             self.reply(seq)
-            for client in list(sh.flex_clients):  # the radio pushes the change to subscribers
-                try:
-                    client.reply_raw(client.flex_tx_status(sh))
-                except OSError:
-                    sh.flex_clients.remove(client)
+            self.reply_raw(self.flex_slice_status(sh))
+            if self not in sh.flex_clients:
+                sh.flex_clients.append(self)
+        elif cmd.startswith("slice tune "):
+            parts = cmd.split()
+            if len(parts) >= 4 and parts[2] == "0":
+                sh.freq_mhz = float(parts[3])
+                self.reply(seq)
+                self.flex_push(sh, lambda c: c.flex_slice_status(sh))
+                self.flex_push(sh, lambda c: c.flex_tx_status(sh))
+            else:
+                self.reply(seq, 0x50000016, "invalid slice")
+        elif cmd.startswith("transmit set rfpower=") or cmd.startswith("transmit set tunepower="):
+            key, value = cmd[len("transmit set "):].split("=")
+            setattr(sh, key, max(0, min(100, int(value))))
+            self.reply(seq)
+            self.flex_push(sh, lambda c: c.flex_tx_status(sh))
+        elif cmd in ("transmit tune 1", "transmit tune 0"):
+            sh.flex_tune = int(cmd[-1])
+            self.reply(seq)
+            self.flex_push(sh, lambda c: c.flex_tx_status(sh))
         else:
             self.reply(seq, 0x50000015, "unknown command")
 
@@ -149,14 +185,14 @@ class Handler(socketserver.StreamRequestHandler):
             ptt = 1 if sh.tx() else 0
             self.reply_raw(
                 f"S0|status fwd={fwd:.2f} peak={fwd:.2f} max=62.43 swr={swr:.4f} "
-                f"pttA={ptt} bandA=20 modeA=1 flexA=SIM-6600 freqA=14205.000 bypassA={sh.tg_bypass} "
+                f"pttA={ptt} bandA=20 modeA=1 flexA=SIM-6600 freqA={sh.freq_mhz * 1000:.3f} bypassA={sh.tg_bypass} "
                 f"bypassRxA=0 antA={sh.tg_ant - 1} pttB=0 bandB=0 modeB=0 flexB= freqB=0.000 bypassB=0 "
                 f"bypassRxB=0 antB=0 state={sh.tg_operate} active=1 tuning={int(tuning)} "
                 f"bypass={sh.tg_bypass} ag=0 relayC1={c1} relayL={l} relayC2={c2}")
         elif cmd == "info":
             self.reply(seq, 0, "3way=1 serial=SIM-0001 nickname=SimTuner")
         elif cmd == "autotune":
-            sh.tg_tune_until = now + 3.0
+            sh.tg_tune_until = now + sh.tune_secs
             sh.swr_by_ant[sh.tg_ant] = round(random.uniform(1.05, 1.3), 2)
             sh.relays[sh.tg_ant] = [random.randint(0, 255) for _ in range(3)]
             self.reply(seq)
@@ -220,10 +256,12 @@ def main():
     ap.add_argument("--tgxl-port", type=int, default=9010)
     ap.add_argument("--pgxl-port", type=int, default=9008)
     ap.add_argument("--flex-port", type=int, default=4992)
+    ap.add_argument("--tune-secs", type=float, default=3.0, help="length of a simulated TGXL tune")
     ap.add_argument("--tx-every", type=float, default=10.0, help="seconds between simulated key-ups")
     ap.add_argument("--tx-len", type=float, default=4.0, help="length of each key-up in seconds")
     args = ap.parse_args()
     shared = Shared(args.tx_every, args.tx_len)
+    shared.tune_secs = args.tune_secs
     servers = [serve("tgxl", args.host, args.tgxl_port, shared),
                serve("pgxl", args.host, args.pgxl_port, shared),
                serve("flex", args.host, args.flex_port, shared)]

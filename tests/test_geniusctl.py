@@ -123,6 +123,16 @@ class SimulatorRoundTrip(unittest.TestCase):
             c.set_rf_power(37)
             self._wait(q, lambda e: e.kind == "status" and e.data["rfpower"] == 37)
             self.assertTrue(c.handle)
+            c.set_tune_power(22)
+            self._wait(q, lambda e: e.kind == "status" and e.data["tunepower"] == 22)
+            c.set_tune(True)
+            self._wait(q, lambda e: e.kind == "status" and e.data["tune"])
+            c.set_tune(False)
+            self._wait(q, lambda e: e.kind == "status" and not e.data["tune"])
+            self.assertEqual(c.tx_slice(), (0, self.shared.freq_mhz))
+            c.tune_slice(0, 7.01)
+            self._wait(q, lambda e: e.kind == "status" and abs(e.data["freq_mhz"] - 7.01) < 1e-6)
+            self.assertEqual(c.tx_slice(), (0, 7.01))
         finally:
             c.stop()
 
@@ -145,6 +155,19 @@ class FlexDecodeTests(unittest.TestCase):
         self.assertTrue(st["changes_allowed"])
         self.assertEqual(st["mode"], "CW")
         self.assertEqual(c.handle, "6016AA69")
+
+    def test_slice_tracking(self):
+        c = FlexRadioClient(queue.Queue())
+        c._handle_line("S6016AA69|slice 0 in_use=1 RF_frequency=14.012310 tx=1 mode=CW")
+        c._handle_line("S6016AA69|slice 1 in_use=1 RF_frequency=7.074000 tx=0 mode=DIGU")
+        self.assertEqual(c.tx_slice(), (0, 14.01231))
+        c._handle_line("S6016AA69|slice 0 RF_frequency=14.020000")  # partial update
+        self.assertEqual(c.tx_slice(), (0, 14.02))
+        c._handle_line("S6016AA69|slice 0 tx=0")
+        c._handle_line("S6016AA69|slice 1 tx=1")
+        self.assertEqual(c.tx_slice(), (1, 7.074))
+        c._handle_line("S6016AA69|slice 1 in_use=0")
+        self.assertIsNone(c.tx_slice())
 
     def test_parse_info(self):
         from geniusctl.devices import parse_flex_info
