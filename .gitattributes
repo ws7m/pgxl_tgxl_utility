@@ -1,0 +1,8 @@
+# Keep line endings right for each platform's scripts, whatever the checkout OS.
+*.sh   text eol=lf
+*.py   text eol=lf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+*.png  binary
+*.ico  binary
+*.icns binary

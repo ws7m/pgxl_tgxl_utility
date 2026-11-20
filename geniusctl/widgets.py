@@ -7,6 +7,7 @@ are drawn with tk.Label so they can show the grey/green/red state coloring.
 from __future__ import annotations
 
 import math
+import sys
 import tkinter as tk
 
 # Palette (dark, in the spirit of the 4O3A utilities)
@@ -28,12 +29,23 @@ KNOB = "#0e3f86"
 YELLOW = "#d6c84a"
 ORANGE = "#d27a2a"
 
-FONT = ("Helvetica", 12)
-FONT_SMALL = ("Helvetica", 9)
-FONT_BOLD = ("Helvetica", 12, "bold")
-FONT_SMALL_BOLD = ("Helvetica", 10, "bold")
-FONT_BIG = ("Helvetica", 13, "bold")
-FONT_VALUE = ("Menlo", 13, "bold")
+# Native-looking families per platform; sizes are points at a fixed 96 DPI
+# (see UI_SCALING), so text keeps the same size relative to the canvas widgets.
+if sys.platform == "darwin":
+    UI_FAMILY, MONO_FAMILY = "Helvetica", "Menlo"
+elif sys.platform.startswith("win"):
+    UI_FAMILY, MONO_FAMILY = "Segoe UI", "Consolas"
+else:
+    UI_FAMILY, MONO_FAMILY = "DejaVu Sans", "DejaVu Sans Mono"
+UI_SCALING = 96 / 72  # Tk pixels per point; set on every platform at startup
+
+FONT = (UI_FAMILY, 12)
+FONT_SMALL = (UI_FAMILY, 9)
+FONT_BOLD = (UI_FAMILY, 12, "bold")
+FONT_SMALL_BOLD = (UI_FAMILY, 10, "bold")
+FONT_BIG = (UI_FAMILY, 13, "bold")
+FONT_VALUE = (MONO_FAMILY, 13, "bold")
+FONT_MONO_SMALL = (MONO_FAMILY, 9)
 
 
 class FlatButton(tk.Label):
@@ -228,7 +240,9 @@ class Slider(tk.Canvas):
         self.bind("<ButtonPress-1>", self._press)
         self.bind("<B1-Motion>", self._drag)
         self.bind("<ButtonRelease-1>", self._release)
-        self.bind("<MouseWheel>", self._wheel)
+        self.bind("<MouseWheel>", self._wheel)  # macOS and Windows
+        self.bind("<Button-4>", lambda e: self.step(1))  # X11 (Linux) wheel up
+        self.bind("<Button-5>", lambda e: self.step(-1))  # X11 wheel down
         for key, step in (("<Left>", -1), ("<Right>", 1), ("<Down>", -1), ("<Up>", 1),
                           ("<Shift-Left>", -5), ("<Shift-Right>", 5)):
             self.bind(key, lambda e, s=step: self.step(s))
@@ -284,7 +298,8 @@ class Slider(tk.Canvas):
                 self.on_commit(self.value)
 
     def _wheel(self, event):
-        self.step(1 if event.delta > 0 else -1)
+        if event.delta:
+            self.step(1 if event.delta > 0 else -1)
 
     def step(self, amount):
         if self.enabled:

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Turn a screenshot of the app into the macOS app icon.
+"""Turn a screenshot of the app into the app icons.
 
     python tools/make_icon.py assets/icon-source.png
 
-Writes assets/icon.png (1024x1024, used for the Dock when run from Python) and
-assets/GeniusControl.icns (used by build_app.sh for the .app bundle).
-Needs Pillow (build_app.sh installs it in build/venv) and macOS iconutil.
+Writes assets/icon.png (1024x1024, the window/Dock icon), assets/GeniusControl.icns
+(macOS .app) and assets/GeniusControl.ico (Windows .exe).
+Needs Pillow (pip install pillow); the .icns also needs macOS iconutil.
 """
 
 from __future__ import annotations
@@ -70,9 +70,11 @@ def main():
         shutil.copyfile(src, ASSETS / "icon-source.png")
     master = make_master(src)
     master.save(ASSETS / "icon.png")
+    master.save(ASSETS / "GeniusControl.ico",
+                sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     if shutil.which("iconutil"):
         write_icns(master, ASSETS / "GeniusControl.icns")
-    print(f"Wrote {ASSETS / 'icon.png'} and {ASSETS / 'GeniusControl.icns'}")
+    print(f"Wrote icon.png, GeniusControl.ico and GeniusControl.icns in {ASSETS}")
 
 
 if __name__ == "__main__":

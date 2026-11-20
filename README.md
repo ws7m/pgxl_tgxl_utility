@@ -1,7 +1,9 @@
 # Genius Control — TGXL / PGXL network utility
 
-A small desktop app that monitors and controls a **4O3A Tuner Genius XL** and a
-**Power Genius XL** over the network. It is pure Python with tkinter: no
+Version 1.0.0 (shown in the window title; set in `geniusctl/__init__.py`).
+
+A small desktop app that monitors and controls a **4O3A Tuner Genius XL**, a
+**Power Genius XL** and a **FlexRadio** over the network. It is pure Python with tkinter: no
 packages to install. It runs on macOS, Windows and Linux with Python 3.10+.
 
 ```bash
@@ -19,18 +21,53 @@ current Tk, or use Homebrew's `brew install python-tk@3.13`. Check with:
 python3 -c "import tkinter; print(tkinter.Tcl().eval('info patchlevel'))"
 ```
 
-The app refuses to start on an old Tk and explains why. `build_app.sh` looks
-for a suitable Python on its own; set `PYTHON=/path/to/python3` to choose one.
+The app refuses to start on an old Tk and explains why. The build scripts
+look for a suitable Python on their own; set `PYTHON` to choose one.
 
-### macOS app
+### Building a standalone app
 
-```bash
-./build_app.sh
-```
+Each script builds with PyInstaller in its own virtualenv under `build/`
+(created the first time, so the first build needs internet access). The result
+needs no Python to run. PyInstaller can't cross-compile, so **run each script
+on the system you are building for**.
 
-This builds a self-contained `dist/Genius Control.app` with PyInstaller (it
-creates its own virtualenv in `build/` the first time). Drag it to
-/Applications and launch it like any other app.
+| System | Command | Result |
+|---|---|---|
+| macOS | `./build_app.sh` | `dist/Genius Control.app`: drag it to /Applications |
+| Windows | double-click `build_windows.bat` | `dist\GeniusControl.exe`: one file, copy it anywhere |
+| Linux | `./build_linux.sh` | `dist/genius-control`: one file |
+
+**Windows:** install Python from
+[python.org](https://www.python.org/downloads/windows/) first (keep the
+"tcl/tk and IDLE" option ticked). The batch file runs `build_windows.ps1`; you
+can also run `powershell -ExecutionPolicy Bypass -File build_windows.ps1`.
+The .exe isn't code-signed, so the first launch may show a SmartScreen
+warning: click *More info* → *Run anyway*.
+
+**Linux:** install Python with tkinter and venv first, for example
+`sudo apt install python3 python3-tk python3-venv` (Debian/Ubuntu),
+`sudo dnf install python3 python3-tkinter` (Fedora) or
+`sudo pacman -S python tk` (Arch). `./build_linux.sh --install`, or
+`dist/install.sh` after a build, copies the program to `~/.local/bin` and adds
+*Genius Control* to your applications menu. A build runs on that distribution and on others with the same or a
+newer glibc.
+
+### Builds from GitHub Actions
+
+Every push to `main` (and every pull request) runs `.github/workflows/build.yml`
+on macOS, Windows and Linux: unit tests, the build script for that system,
+and a check that the built app starts. To download the builds, open the
+repository's **Actions** tab, pick a run, and look under **Artifacts**:
+
+- `GeniusControl-macOS`: a zip of `Genius Control.app` (Apple Silicon)
+- `GeniusControl-Windows`: `GeniusControl.exe`
+- `GeniusControl-Linux`: `genius-control`, its icon and `install.sh` (x86-64;
+  built on Ubuntu 22.04, so it runs on that and newer distributions)
+
+You can also start a run by hand from the Actions tab (*Run workflow*).
+
+Settings are stored in `~/Library/Application Support/GeniusControl` (macOS),
+`%APPDATA%\GeniusControl` (Windows) or `~/.config/GeniusControl` (Linux).
 
 ## Tabs
 
@@ -101,8 +138,10 @@ python3 -m unittest discover -s tests -v
 
 ## App icon
 
-The icon is made from a screenshot of the app (`assets/icon-source.png`). To
-regenerate it from a new screenshot:
+The icon is made from a screenshot of the app (`assets/icon-source.png`).
+`tools/make_icon.py` writes `icon.png` (window icon), `GeniusControl.icns`
+(macOS) and `GeniusControl.ico` (Windows). To regenerate them from a new
+screenshot on a Mac:
 
 ```bash
 build/venv/bin/pip install pillow

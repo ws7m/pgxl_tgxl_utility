@@ -1,0 +1,134 @@
+# Build Genius Control on macOS, Windows and Linux with the repository's own
+# build scripts, check that each built app starts, and keep the results as
+# downloadable artifacts (Actions tab -> a run -> "Artifacts").
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+          - name: Windows
+            os: windows-latest
+          - name: Linux
+            # The oldest supported Ubuntu runner: the binary needs this glibc
+            # or newer, so building here makes it run on more distributions.
+            os: ubuntu-22.04
+    env:
+      # Keep the smoke test away from any real settings file.
+      GENIUSCTL_CONFIG: ${{ github.workspace }}/ci-settings.json
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        id: py
+        with:
+          python-version: "3.13"
+
+      - name: Check Python and Tk
+        shell: bash
+        run: python -I tools/check_python.py
+
+      - name: Unit tests
+        shell: bash
+        run: python -m unittest discover -s tests -v
+
+      # ---------------------------------------------------------------- macOS
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          PYTHON: ${{ steps.py.outputs.python-path }}
+        run: ./build_app.sh
+
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          "dist/Genius Control.app/Contents/MacOS/Genius Control" &
+          pid=$!
+          sleep 10
+          kill -0 "$pid" || { echo "The app exited during startup"; exit 1; }
+          kill "$pid"
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: ditto -c -k --keepParent "dist/Genius Control.app" GeniusControl-macOS.zip
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
+        with:
+          name: GeniusControl-macOS
+          path: GeniusControl-macOS.zip
+
+      # -------------------------------------------------------------- Windows
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell  # Windows PowerShell 5.1, as on a stock Windows PC
+        env:
+          PYTHON: ${{ steps.py.outputs.python-path }}
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\build_windows.ps1
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $p = Start-Process -FilePath dist\GeniusControl.exe -PassThru
+          Start-Sleep -Seconds 10
+          if ($p.HasExited) { Write-Error "The app exited during startup (code $($p.ExitCode))"; exit 1 }
+          Stop-Process -Id $p.Id -Force
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: GeniusControl-Windows
+          path: dist/GeniusControl.exe
+
+      # ---------------------------------------------------------------- Linux
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          PYTHON: ${{ steps.py.outputs.python-path }}
+        run: ./build_linux.sh
+
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q xvfb
+          xvfb-run -a bash -c '
+            dist/genius-control &
+            pid=$!
+            sleep 10
+            kill -0 "$pid" || { echo "The app exited during startup"; exit 1; }
+            kill "$pid"'
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          tar -czf GeniusControl-linux-x86_64.tar.gz -C dist \
+            genius-control genius-control.png install.sh
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: GeniusControl-Linux
+          path: GeniusControl-linux-x86_64.tar.gz

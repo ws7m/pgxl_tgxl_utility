@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import queue
+import sys
 import time
 from pathlib import Path
 import tkinter as tk
@@ -15,7 +16,7 @@ from .protocol import Event
 from .settings import Settings, config_path
 from .bandtune import BANDS, STEP_CHOICES_KHZ, BandTuner, TunerView, band_frequencies
 from .widgets import (AMBER, BG, BLUE, BLUE_DIM, BORDER, DIM, FONT, FONT_BIG, FONT_BOLD, FONT_SMALL,
-                      FONT_SMALL_BOLD, FONT_VALUE, GREEN, GREY, ORANGE, PANEL, RED, TEXT, YELLOW,
+                      FONT_MONO_SMALL, FONT_SMALL_BOLD, FONT_VALUE, UI_SCALING, GREEN, GREY, ORANGE, PANEL, RED, TEXT, YELLOW,
                       BarMeter, FlatButton,
                       RelayKnob, Slider, StatusDot, power_ticks, power_zones, swr_ticks, swr_zones)
 
@@ -37,7 +38,7 @@ def _panel(master, title):
 
 
 def _meter_row(body, row, label, meter, unit_width=8):
-    tk.Label(body, text=label, fg=TEXT, bg=PANEL, font=("Helvetica", 10, "bold"), anchor="w").grid(
+    tk.Label(body, text=label, fg=TEXT, bg=PANEL, font=FONT_SMALL_BOLD, anchor="w").grid(
         row=row, column=0, sticky="nw", padx=(0, 2))
     meter.grid(row=row, column=1, sticky="ew")
     value = tk.Label(body, text="--", fg=TEXT, bg=PANEL, font=FONT_VALUE, width=unit_width, anchor="e")
@@ -623,10 +624,11 @@ class SettingsTab:
         f.rowconfigure(3, weight=1)
         diag.columnconfigure(0, weight=1)
         diag.rowconfigure(1, weight=1)
-        self.raw_text = tk.Text(diag, height=2, width=40, font=("Menlo", 9), state="disabled",
+        self.raw_text = tk.Text(diag, height=2, width=40, font=FONT_MONO_SMALL, state="disabled",
                                 wrap="char")
         self.raw_text.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 4))
-        self.log = tk.Text(diag, height=3, width=40, font=("Menlo", 9), state="disabled", wrap="none")
+        self.log = tk.Text(diag, height=3, width=40, font=FONT_MONO_SMALL, state="disabled",
+                           wrap="none")
         self.log.grid(row=1, column=0, sticky="nsew")
         sb = ttk.Scrollbar(diag, command=self.log.yview)
         sb.grid(row=1, column=1, sticky="ns")
@@ -738,7 +740,7 @@ class App:
         self.pgxl = PowerGeniusClient(self.events)
         self.flex = FlexRadioClient(self.events)
 
-        root.title("Genius Control")
+        root.title(f"Genius Control v{__version__}")
         root.configure(bg=BG)
         root.minsize(380, 400)
 
@@ -859,11 +861,20 @@ class App:
         self.root.destroy()
 
 
-ICON_PNG = Path(__file__).resolve().parents[1] / "assets" / "icon.png"
+def _resource_root() -> Path:
+    """Project root from source, or the unpacked bundle when frozen by PyInstaller."""
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return Path(__file__).resolve().parents[1]
+
+
+ICON_PNG = _resource_root() / "assets" / "icon.png"
 
 
 def _set_icon(root: tk.Tk):
-    """Window/Dock icon when run from source (the .app bundle uses its .icns)."""
+    """Window/taskbar/Dock icon. (The macOS .app uses its .icns for the Dock.)"""
+    if sys.platform == "darwin" and getattr(sys, "frozen", False):
+        return
     if ICON_PNG.exists():
         try:
             root._icon = tk.PhotoImage(file=str(ICON_PNG))  # keep a reference
@@ -885,7 +896,6 @@ def _check_tk() -> bool:
     if tk.TkVersion >= 8.6:
         return True
     import subprocess
-    import sys
 
     msg = OLD_TK_MESSAGE.format(tk=tk.TkVersion, exe=sys.executable)
     print(msg, file=sys.stderr)
@@ -900,6 +910,13 @@ def main():
     if not _check_tk():
         raise SystemExit(1)
     root = tk.Tk()
+    # Same points-to-pixels ratio everywhere, so the layout (tuned in pixels)
+    # looks the same on macOS, Windows and Linux.
+    root.tk.call("tk", "scaling", UI_SCALING)
+    if not sys.platform.startswith("win") and sys.platform != "darwin":
+        style = ttk.Style(root)
+        if "clam" in style.theme_names():
+            style.theme_use("clam")  # nicer than the X11 'default' theme
     _set_icon(root)
     App(root)
     root.mainloop()

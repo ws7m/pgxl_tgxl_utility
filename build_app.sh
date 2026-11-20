@@ -9,19 +9,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# Prints "ok <version> <tk>" when the interpreter is usable, else "bad <reason>".
-check_python() {
-    "$1" - <<'EOF' 2>/dev/null || echo "bad cannot import tkinter"
-import sys
-if sys.version_info < (3, 10):
-    print("bad Python %d.%d is too old (need 3.10+)" % sys.version_info[:2]); raise SystemExit
-import tkinter
-tk = tkinter.Tcl().eval("info patchlevel")
-major, minor = (int(x) for x in tk.split(".")[:2])
-if (major, minor) < (8, 6):
-    print("bad Tcl/Tk %s is too old (need 8.6+; it draws blank windows)" % tk); raise SystemExit
-print("ok %s %s" % (sys.version.split()[0], tk))
-EOF
+check_python() {  # prints "ok <python> <tk>" or "bad <reason>"
+    local out
+    out=$("$1" -I tools/check_python.py 2>/dev/null || true)
+    echo "${out:-bad could not run it}"
 }
 
 candidates=()
